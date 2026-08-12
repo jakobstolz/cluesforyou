@@ -18,7 +18,11 @@ class DifficultyParams:
     allow_compare: bool  # GT/LT/EQ comparisons (group-vs-group and person-vs-person neighbor counts)
     allow_group_existence: bool  # "every row/column/name/profession has >=1 criminal"
     allow_parity: bool  # "an odd/even number of criminals in X" - weak, only resolves a last cell
-    allow_tier4: bool
+    allow_tier4: bool  # NOTE (v9): measured across 50+ generated Medium/Hard puzzles, tier4 has never once been
+    # load-bearing - tiers 0-3(+combination) always already finish the job before tier4 gets a chance to matter.
+    # Not touched this round (deliberately deprioritized), but the goal is for it to become load-bearing in MOST
+    # Hard puzzles eventually - needs a deliberately-constructed tier4 dependency, the same way v5 engineered real
+    # combination-necessity (see _find_combination_seed_pair in generator.py) rather than leaving it to chance.
     allow_combination: bool = False  # cross-reference pairs of count clues (see reasoner.py) - cheap, unlike tier4
     require_min_tier: int = 0  # if set, generation rejects puzzles that never needed this tier
     min_chain_depth: int = 0  # Hard only: minimum forced-step depth before a hypothesis contradiction
@@ -26,6 +30,9 @@ class DifficultyParams:
     min_combination_events: int = 1  # Hard only: how many *distinct* combination events the attached play must use (see AttachmentQuality.combination_event_count - deliberately not a count of individual forced deductions)
     max_starter_power: int | None = None  # Hard only: reject a starter clue that alone resolves too much for free
     candidate_pool_size: int = 1  # generate up to this many valid puzzles per attempt cycle and keep the best-paced
+    starter_candidates: int = 1  # v9: try up to this many starter cells per successful `chosen` set, keep the
+    # best-scoring attachment (see generator.py's attach_clues_to_cells) - a cheap quality lever that reuses the
+    # same clue set instead of paying for a fresh candidate_pool_size search. 1 = today's single-starter behavior.
 
     # Person-relative directional regions (above/below/left/right of X) are
     # mechanically as simple as a row/column clue, so they're generated at
@@ -72,6 +79,7 @@ MEDIUM = DifficultyParams(
     require_combination=True,  # must genuinely need to combine two clues, not just read one
     max_starter_power=3,  # the free starting clue mustn't single-handedly resolve more than this many cells
     candidate_pool_size=1,  # no best-of-N search here - that expense moves up to Hard only (see v8 plan)
+    starter_candidates=3,  # cheap quality lever (v9) - starting value, tune via batch_instrument.py measurement
 )
 
 HARD = DifficultyParams(
@@ -94,6 +102,7 @@ HARD = DifficultyParams(
     min_combination_events=2,  # the *new* bar over Medium: at least two genuine combination moments, not just one
     max_starter_power=2,  # tightened from Medium's 4 - even less handed over for free
     candidate_pool_size=3,  # compare up to 3 valid puzzles per attempt cycle, keep the best-paced (see difficulty_metrics.py)
+    starter_candidates=5,  # stacks with candidate_pool_size - each of those independent clue sets also gets a best-of-5 starter
 )
 
 BY_NAME: dict[str, DifficultyParams] = {p.name: p for p in (EASY, MEDIUM, HARD)}

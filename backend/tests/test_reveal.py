@@ -52,28 +52,9 @@ def test_reveal_for_cell_funfact_respects_used_keys():
 
 DIFFICULTY_ITERATIONS = {"easy": 5, "medium": 5, "hard": 2}  # Hard's tier-4 necessity checks are slow
 
-# See test_generator_stress.py's matching xfail for the full explanation:
-# the min_combination_events fix (difficulty_metrics.py) landing on top of
-# difficulty.py's independently-tightened bounds regressed Medium/Hard
-# reliability for these fixed seeds - tracked, not silently broken, and
-# under investigation via backend/scripts/batch_instrument.py rather than
-# guessed at again. Remove once that investigation lands a real fix.
-_RELIABILITY_XFAIL_REASON = (
-    "Medium/Hard generation reliability regressed after the "
-    "min_combination_events fix landed on the current tightened "
-    "difficulty.py bounds - under investigation via batch_instrument.py."
-)
-
 
 @pytest.mark.slow
-@pytest.mark.parametrize(
-    "difficulty",
-    [
-        "easy",
-        pytest.param("medium", marks=pytest.mark.xfail(reason=_RELIABILITY_XFAIL_REASON, strict=False)),
-        pytest.param("hard", marks=pytest.mark.xfail(reason=_RELIABILITY_XFAIL_REASON, strict=False)),
-    ],
-)
+@pytest.mark.parametrize("difficulty", list(DIFFICULTY_ITERATIONS))
 def test_generated_attachment_chain_reaches_all_cells(difficulty):
     rng = random.Random(f"attach-{difficulty}")
     params = get_difficulty(difficulty)

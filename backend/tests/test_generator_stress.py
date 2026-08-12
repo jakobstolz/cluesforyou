@@ -24,45 +24,21 @@ POOL = [Person(NAMES[i], PROFESSIONS[i % len(PROFESSIONS)]) for i in range(len(N
 # mechanics - genuinely proving a clue set unsolvable via tiers 0-3 alone
 # is inherently slower and more variable than a plain solvability check),
 # so they get generous per-puzzle ceilings and fewer samples than Easy to
-# keep overall test runtime reasonable. Ceilings measured via a 12-15 seed
-# controlled sweep after the v8 reasoner.py/solver_cpsat.py performance
-# fixes (see their docstrings): Medium's observed max was ~19s, Hard's
-# ~23s (candidate_pool_size=3 adds the "generate a few, keep best-paced"
-# search on top of Medium's mechanics, but wasn't reliably slower in that
-# sweep) - both budgets below add a healthy margin over that, not a tight
-# fit to it.
+# keep overall test runtime reasonable. Ceilings last re-measured after v9's
+# logical-dependency growth heuristic + starter-quality optimization
+# (generator.py's _best_growth_candidate/attach_clues_to_cells) via a 15-seed
+# controlled sweep (backend/scripts/batch_instrument.py): both Medium and
+# Hard hit 15/15 success (up from 12/15 and 13/15 pre-v9) with max observed
+# elapsed ~12.7s either way - both budgets below keep a healthy margin over
+# that, not a tight fit to it.
 DIFFICULTY_SETTINGS = {
     "easy": {"n": 8, "max_seconds": 3.0},
     "medium": {"n": 6, "max_seconds": 40.0},
     "hard": {"n": 4, "max_seconds": 45.0},
 }
 
-# Known-and-tracked, not silently broken: fixing the combination-counting
-# bug (min_combination_events now genuinely requires N *distinct* combine
-# events, not N forced deductions - see difficulty_metrics.py) landed on
-# top of difficulty.py's independently-tightened bounds (min_clues 11-15,
-# max_starter_power 2-3, require_min_tier=2), and together they push these
-# two fixed-seed cases past what the attempt/time budget reliably finds.
-# Deliberately NOT retuning difficulty.py bounds to paper over this - see
-# backend/scripts/batch_instrument.py, built specifically to gather real
-# seed/timing/quality data before touching these bounds again. Remove this
-# xfail once that investigation lands a real fix.
-_RELIABILITY_XFAIL_REASON = (
-    "Medium/Hard generation reliability regressed after the "
-    "min_combination_events fix landed on the current tightened "
-    "difficulty.py bounds - under investigation via batch_instrument.py."
-)
-
-
 @pytest.mark.slow
-@pytest.mark.parametrize(
-    "difficulty",
-    [
-        "easy",
-        pytest.param("medium", marks=pytest.mark.xfail(reason=_RELIABILITY_XFAIL_REASON, strict=False)),
-        pytest.param("hard", marks=pytest.mark.xfail(reason=_RELIABILITY_XFAIL_REASON, strict=False)),
-    ],
-)
+@pytest.mark.parametrize("difficulty", list(DIFFICULTY_SETTINGS))
 def test_generated_puzzles_are_valid(difficulty):
     rng = random.Random(f"stress-{difficulty}")
     params = get_difficulty(difficulty)

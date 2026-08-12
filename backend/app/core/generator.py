@@ -86,6 +86,17 @@ PARITY_SAMPLE_SIZE = 15
 # cost of every growth/prune step (this matters most for Hard, where many
 # of those steps also run the tier-4 hypothesis search).
 MAX_POOL_SIZE = 60
+# Growth's candidate scoring (see _best_growth_candidate) is more expensive
+# per-candidate than the old pure-overlap pick, so it's only ever applied to
+# a bounded shortlist rather than every remaining candidate - this caps that
+# cost independent of how large `remaining` is (v9: measured against the
+# pre-change baseline in batch_instrument.py's output before landing).
+GROWTH_SCORING_SHORTLIST_SIZE = 3
+# How much more a "dependency" deduction (an existing chosen clue or a
+# combination only becoming possible because of the candidate being scored)
+# counts than a "direct" one (the candidate resolving something purely on
+# its own) - see _growth_candidate_score.
+GROWTH_DEPENDENCY_WEIGHT = 2.0
 
 ScopeDescriptor = tuple[list[Cell], ScopeKind, object]
 
@@ -512,17 +523,94 @@ def _solves_with_required_properties(clues: list[Clue], difficulty: DifficultyPa
     return True
 
 
-def _weighted_growth_pick(remaining: list[Clue], chosen_cells: set[Cell], rng: random.Random) -> Clue:
-    """Pick the next growth candidate, weighting toward clues whose scope
-    overlaps what's already chosen (weight = 1 + overlap size, so a
-    zero-overlap candidate still has a nonzero chance - keeps variety -
-    but overlapping candidates are favored). Biases growth toward
-    building one connected, multi-step reasoning structure instead of a
-    pile of independent single-clue facts, which in turn makes
-    combination-necessity (see _find_combination_seed_pair) more likely
-    to survive on its own, not just via the seeded pair."""
-    weights = [1 + len(clue.scope & chosen_cells) for clue in remaining]
-    return rng.choices(remaining, weights=weights, k=1)[0]
+def _pick_growth_shortlist(remaining: list[Clue], chosen_cells: set[Cell], rng: random.Random, k: int) -> list[Clue]:
+    """Cheap pre-filter before the more expensive dependency-scoring in
+    _best_growth_candidate: sample up to `k` distinct candidates from
+    `remaining`, weighted toward clues whose scope overlaps what's already
+    chosen (weight = 1 + overlap size, so a zero-overlap candidate still
+    has a nonzero chance - keeps variety - but overlapping candidates are
+    favored, since a combination opportunity requires a subset
+    relationship, which usually implies overlap). This used to be the
+    *entire* growth-candidate selection (formerly `_weighted_growth_pick`);
+    now it only bounds which candidates the expensive step below has to
+    evaluate, keeping that step's cost independent of how large
+    `remaining` is."""
+    if len(remaining) <= k:
+        return list(remaining)
+    pool = list(remaining)
+    weights = [1 + len(clue.scope & chosen_cells) for clue in pool]
+    picked: list[Clue] = []
+    for _ in range(k):
+        idx = rng.choices(range(len(pool)), weights=weights, k=1)[0]
+        picked.append(pool.pop(idx))
+        weights.pop(idx)
+    return picked
+
+
+def _growth_candidate_score(
+    candidate: Clue,
+    chosen: list[Clue],
+    baseline_known: KnownState,
+    difficulty: DifficultyParams,
+    cache: _SolveCache,
+) -> float:
+    """How much does adding `candidate` to `chosen` actually buy, beyond
+    what `chosen` already derives alone (`baseline_known`)? Two kinds of
+    payoff, weighted differently (see GROWTH_DEPENDENCY_WEIGHT):
+      - "direct": candidate resolves a new cell on its own (its own
+        propagate() fires, no other clue involved) - the same kind of
+        progress the old pure-overlap heuristic implicitly rewarded, and
+        still worth something (growth has to make progress somehow).
+      - "dependency": a cell only becomes resolvable once candidate's own
+        facts are added - either an EXISTING chosen clue's propagate()
+        newly fires (it needed candidate's contribution to go tight), or a
+        combination step fires with candidate as one of the pair. This is
+        the "does this clue pay off *because of* what's already chosen"
+        signal spatial overlap alone can't see - overlap rewards clues
+        that reinforce each other regardless of whether that reinforcement
+        actually produces a new deduction.
+    Always the cheap tiers-0-3(+combination) check, never tier4 - the same
+    invariant growth already relies on elsewhere (see select_clue_subset's
+    comment on why tier4 during growth would reintroduce the v3-postmortem
+    performance trap)."""
+    trial = cache.solves(chosen + [candidate], allow_tier4=False, allow_combination=difficulty.allow_combination)
+    new_cells = set(trial.known) - set(baseline_known)
+    if not new_cells:
+        return 0.0
+
+    direct = 0
+    dependency = 0
+    for step in trial.steps:
+        if step.cell not in new_cells:
+            continue
+        if step.clue_id == candidate.id and len(step.used_clue_ids) == 1:
+            direct += 1
+        else:
+            dependency += 1
+
+    return direct + GROWTH_DEPENDENCY_WEIGHT * dependency
+
+
+def _best_growth_candidate(
+    shortlist: list[Clue],
+    chosen: list[Clue],
+    difficulty: DifficultyParams,
+    cache: _SolveCache,
+    rng: random.Random,
+) -> Clue:
+    """Score every shortlisted candidate (see _pick_growth_shortlist) via
+    _growth_candidate_score and keep the best, breaking ties randomly.
+    Reuses _SolveCache throughout: the baseline (`chosen` alone) is almost
+    always already cached from the previous growth iteration's
+    _solves_with_required_properties check, and whichever candidate wins
+    here costs nothing extra when that same check re-runs on it right
+    after - the added cost of this whole step is strictly bounded to the
+    other `len(shortlist) - 1` candidates, one cache.solves() call each."""
+    baseline = cache.solves(chosen, allow_tier4=False, allow_combination=difficulty.allow_combination)
+    scored = [(_growth_candidate_score(c, chosen, baseline.known, difficulty, cache), c) for c in shortlist]
+    best_score = max(score for score, _ in scored)
+    best = [c for score, c in scored if score == best_score]
+    return rng.choice(best)
 
 
 def select_clue_subset(
@@ -532,7 +620,7 @@ def select_clue_subset(
 ) -> list[Clue] | None:
     cache = _SolveCache()
     remaining = list(pool)
-    rng.shuffle(remaining)  # baseline order for the zero-overlap ties within _weighted_growth_pick
+    rng.shuffle(remaining)  # baseline order for the zero-overlap ties within _pick_growth_shortlist
 
     # If this difficulty needs combination reasoning to be necessary,
     # seed growth with a proven tight subset-pair up front - see
@@ -559,11 +647,14 @@ def select_clue_subset(
     # required, growth also keeps going past the first "solved" point
     # until it's solved *and* genuinely needs combination - stopping too
     # early would hand pruning a set with no combination dependency to
-    # preserve in the first place. Candidates are picked via
-    # _weighted_growth_pick rather than a fixed shuffled order (see there).
+    # preserve in the first place. Candidates are picked via a bounded
+    # shortlist + dependency-scoring pass (_pick_growth_shortlist +
+    # _best_growth_candidate) rather than a fixed shuffled order or pure
+    # spatial-overlap weighting (see there for why).
     grown = False
     while remaining:
-        clue = _weighted_growth_pick(remaining, chosen_cells, rng)
+        shortlist = _pick_growth_shortlist(remaining, chosen_cells, rng, GROWTH_SCORING_SHORTLIST_SIZE)
+        clue = _best_growth_candidate(shortlist, chosen, difficulty, cache, rng)
         remaining.remove(clue)
         chosen.append(clue)
         chosen_cells |= clue.scope
@@ -675,40 +766,43 @@ def _sort_key(clue: Clue) -> tuple[int, int, int]:
     return (is_direct, clue.tier, len(clue.scope))
 
 
-def _choose_starter_cell(chosen: list[Clue], rng: random.Random) -> Cell:
-    """Bias toward a cell covered by at least one small-scope clue (<=3
-    cells) - much more likely to fire immediately from just the starter
-    fact alone now that tier-1 bootstrapping clues are banned outside Easy.
-    Falls back to fully random if no such cell exists."""
+def _starter_candidate_cells(chosen: list[Clue], rng: random.Random) -> list[Cell]:
+    """Shuffled starter-cell candidates, biased toward cells covered by at
+    least one small-scope clue (<=3 cells) - much more likely to fire
+    immediately from just the starter fact alone now that tier-1
+    bootstrapping clues are banned outside Easy. Falls back to every cell
+    if no such small-scope cell exists. Used both for the single-starter
+    path (take the first) and the multi-starter quality search below (take
+    up to `difficulty.starter_candidates`)."""
     small_scope_cells = sorted({c for clue in chosen if len(clue.scope) <= 3 for c in clue.scope})
-    if small_scope_cells:
-        return rng.choice(small_scope_cells)
-    return rng.choice(ALL_CELLS)
+    pool = list(small_scope_cells) if small_scope_cells else list(ALL_CELLS)
+    rng.shuffle(pool)
+    return pool
 
 
-def attach_clues_to_cells(
+def _attach_with_starter(
     chosen: list[Clue],
     solution: Solution,
     difficulty: DifficultyParams,
-    rng: random.Random,
-) -> tuple[Cell, dict[Cell, Clue], AttachmentQuality] | None:
-    """Pick a starter cell independent of the clue graph, seed the
-    reasoning trace with its true value, and walk the resulting trace to
-    assign every clue a slot: a cell that's already knowable by the time
-    that clue is needed, so a player following the chain in attachment
-    order is never asked to guess something they couldn't yet determine.
-    Combination steps (clue_id starting with "combine:") don't get their
-    own slot - the "clue" for a combine-derived cell *is* the two
-    already-attached clues it came from, nothing new to show - but a clue
-    that only ever contributes as a combine partner (never independently
-    fires on its own) still needs a slot somewhere so its text is visible
-    at all. Cells that end up with no clue attached (including any
-    resolved only via combination, or via tier-4 hypothesis testing) get
-    a fun fact at play-time instead (see reveal.py). Also returns an
-    AttachmentQuality (see difficulty_metrics.py) describing how evenly
-    paced this particular attachment is - generate_puzzle uses it to pick
-    the best of several candidates when difficulty.candidate_pool_size > 1."""
-    starter_cell = _choose_starter_cell(chosen, rng)
+    starter_cell: Cell,
+) -> tuple[dict[Cell, Clue], AttachmentQuality] | None:
+    """Seed the reasoning trace with `starter_cell`'s true value and walk
+    the resulting trace to assign every clue a slot: a cell that's already
+    knowable by the time that clue is needed, so a player following the
+    chain in attachment order is never asked to guess something they
+    couldn't yet determine. Combination steps (clue_id starting with
+    "combine:") don't get their own slot - the "clue" for a combine-derived
+    cell *is* the two already-attached clues it came from, nothing new to
+    show - but a clue that only ever contributes as a combine partner
+    (never independently fires on its own) still needs a slot somewhere so
+    its text is visible at all. Cells that end up with no clue attached
+    (including any resolved only via combination, or via tier-4 hypothesis
+    testing) get a fun fact at play-time instead (see reveal.py). Also
+    returns an AttachmentQuality (see difficulty_metrics.py) describing how
+    evenly paced this particular attachment is - both `attach_clues_to_cells`
+    (multiple starters, same `chosen`) and `generate_puzzle` (multiple
+    independent `chosen` sets, via candidate_pool_size) use it to keep the
+    best-paced result."""
     sorted_clues = sorted(chosen, key=_sort_key)
     trace = run_reasoner(
         sorted_clues,
@@ -781,7 +875,37 @@ def attach_clues_to_cells(
         if quality.combination_event_count < needed:
             return None  # this attachment's actual play sequence didn't combine enough distinct times - retry
 
-    return starter_cell, cell_clue, quality
+    return cell_clue, quality
+
+
+def attach_clues_to_cells(
+    chosen: list[Clue],
+    solution: Solution,
+    difficulty: DifficultyParams,
+    rng: random.Random,
+) -> tuple[Cell, dict[Cell, Clue], AttachmentQuality] | None:
+    """Try up to `difficulty.starter_candidates` distinct starter cells for
+    this ALREADY-valid `chosen` clue set (no re-running select_clue_subset -
+    that's the expensive ~88%-of-attempts bottleneck; this only re-runs the
+    comparatively cheap attachment/replay logic per extra starter) and keep
+    whichever succeeds with the best score_attachment_quality. A cheap way
+    to get some of candidate_pool_size's quality benefit without paying for
+    a fresh clue-set search each time - stacks with it naturally (Hard's
+    handful of independent `chosen` sets each also get their own best-of-N
+    starter). `starter_candidates=1` (Easy's default) is byte-for-byte
+    identical to the old single-starter behavior."""
+    num_candidates = max(1, difficulty.starter_candidates)
+    starter_pool = _starter_candidate_cells(chosen, rng)[:num_candidates]
+
+    best: tuple[Cell, dict[Cell, Clue], AttachmentQuality] | None = None
+    for starter_cell in starter_pool:
+        result = _attach_with_starter(chosen, solution, difficulty, starter_cell)
+        if result is None:
+            continue
+        cell_clue, quality = result
+        if best is None or score_attachment_quality(quality, difficulty) > score_attachment_quality(best[2], difficulty):
+            best = (starter_cell, cell_clue, quality)
+    return best
 
 
 def _replay_attachment(

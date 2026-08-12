@@ -41,10 +41,14 @@ class ScopeKind(str, Enum):
     CORNER = "corner"
     EDGE = "edge"
     INTERIOR = "interior"
-    ABOVE = "above"  # person-relative directional regions
+    ABOVE = "above"  # person-relative, same COLUMN only - "über/unter/links/rechts von X" phrasing
     BELOW = "below"
     LEFT_OF = "left_of"
     RIGHT_OF = "right_of"
+    NORTH_OF = "north_of"  # person-relative, whole half-grid - "nördlich/südlich/westlich/östlich von X" phrasing
+    SOUTH_OF = "south_of"
+    WEST_OF = "west_of"
+    EAST_OF = "east_of"
 
 
 def row_cells(row: int) -> list[Cell]:
@@ -139,23 +143,53 @@ def interior_cells() -> list[Cell]:
 
 
 def cells_above(cell: Cell) -> list[Cell]:
+    """Cells strictly above `cell`, same column only (a straight line
+    north - matches cluesbysam's convention). Phrased "über X" -
+    contrast with cells_north_of, the whole-half-grid version."""
+    r, c = cell
+    return [(rr, c) for rr in range(r)]
+
+
+def cells_below(cell: Cell) -> list[Cell]:
+    """Same column, strictly below. Phrased "unter X"."""
+    r, c = cell
+    return [(rr, c) for rr in range(r + 1, GRID_ROWS)]
+
+
+def cells_left_of(cell: Cell) -> list[Cell]:
+    """Same row, strictly to the left. Phrased "links von X"."""
+    r, c = cell
+    return [(r, cc) for cc in range(c)]
+
+
+def cells_right_of(cell: Cell) -> list[Cell]:
+    """Same row, strictly to the right. Phrased "rechts von X"."""
+    r, c = cell
+    return [(r, cc) for cc in range(c + 1, GRID_COLS)]
+
+
+def cells_north_of(cell: Cell) -> list[Cell]:
     """Every cell with a strictly smaller row index than `cell`, across
-    all columns (not just `cell`'s own column)."""
+    *all* columns (the whole half-grid above it, not just its own
+    column - contrast with cells_above). Phrased "nördlich von X"."""
     r, _ = cell
     return [(rr, c) for rr in range(r) for c in range(GRID_COLS)]
 
 
-def cells_below(cell: Cell) -> list[Cell]:
+def cells_south_of(cell: Cell) -> list[Cell]:
+    """Whole half-grid below. Phrased "südlich von X"."""
     r, _ = cell
     return [(rr, c) for rr in range(r + 1, GRID_ROWS) for c in range(GRID_COLS)]
 
 
-def cells_left_of(cell: Cell) -> list[Cell]:
+def cells_west_of(cell: Cell) -> list[Cell]:
+    """Whole half-grid to the left. Phrased "westlich von X"."""
     _, c = cell
     return [(r, cc) for r in range(GRID_ROWS) for cc in range(c)]
 
 
-def cells_right_of(cell: Cell) -> list[Cell]:
+def cells_east_of(cell: Cell) -> list[Cell]:
+    """Whole half-grid to the right. Phrased "östlich von X"."""
     _, c = cell
     return [(r, cc) for r in range(GRID_ROWS) for cc in range(c + 1, GRID_COLS)]
 

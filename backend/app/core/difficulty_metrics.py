@@ -94,6 +94,7 @@ class AttachmentQuality:
     reveal_sizes: list[int]  # per-firing-event reveal counts, for tests/inspection
     first_combination_fraction: float | None  # position (0=earliest, 1=latest) of the first combine step; None if none occurred
     combination_fraction_spread: float  # stddev of combine-step positions - 0 if <=1 combination step
+    combination_step_count: int  # how many distinct combine steps fired during replay - drives min_combination_steps (Hard)
 
 
 def analyze_attachment_steps(steps: list[Step]) -> AttachmentQuality:
@@ -105,7 +106,13 @@ def analyze_attachment_steps(steps: list[Step]) -> AttachmentQuality:
     (`used_clue_ids` with 2 entries) as fractions of the total step count
     to measure how early/spread-out combination reasoning was."""
     if not steps:
-        return AttachmentQuality(max_reveal_size=0, reveal_sizes=[], first_combination_fraction=None, combination_fraction_spread=0.0)
+        return AttachmentQuality(
+            max_reveal_size=0,
+            reveal_sizes=[],
+            first_combination_fraction=None,
+            combination_fraction_spread=0.0,
+            combination_step_count=0,
+        )
 
     reveal_counts: dict[str, int] = {}
     for step in steps:
@@ -126,6 +133,7 @@ def analyze_attachment_steps(steps: list[Step]) -> AttachmentQuality:
         reveal_sizes=reveal_sizes,
         first_combination_fraction=first_combination_fraction,
         combination_fraction_spread=spread,
+        combination_step_count=len(combo_positions),
     )
 
 

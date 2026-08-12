@@ -34,6 +34,7 @@ async function onGenerateClick() {
   errorEl.classList.add("hidden");
 
   const difficulty = document.querySelector('input[name="difficulty"]:checked').value;
+  const seed = document.getElementById("seed-input").value.trim();
 
   const btn = document.getElementById("generate-btn");
   btn.disabled = true;
@@ -41,7 +42,7 @@ async function onGenerateClick() {
   btn.textContent = "Generating…";
 
   try {
-    const data = await api.generatePuzzle(difficulty);
+    const data = await api.generatePuzzle(difficulty, seed);
     startGame(data);
   } catch (err) {
     errorEl.textContent = err.message;
@@ -80,8 +81,10 @@ function startGame(data) {
   };
 
   state.cellDimmed = Array.from({ length: numRows }, () => Array(numCols).fill(false));
+  state.easterEggHearts = Array.from({ length: numRows }, () => Array(numCols).fill(false));
 
   document.getElementById("difficulty-badge").textContent = data.difficulty;
+  document.getElementById("seed-display").textContent = `Seed: ${data.seed}`;
   const hintMsg = document.getElementById("hint-message");
   hintMsg.textContent = "";
   hintMsg.classList.add("hidden");

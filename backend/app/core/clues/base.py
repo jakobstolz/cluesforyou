@@ -15,6 +15,7 @@ fact:
 from __future__ import annotations
 
 import itertools
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -74,13 +75,23 @@ class ReasoningTrace:
 
 class Clue(ABC):
     """Base class for all clue flavors. Subclasses must set any fields
-    `render_text` depends on *before* calling `super().__init__(...)`."""
+    `render_text` depends on *before* calling `super().__init__(...)`.
+
+    `rng`, if given, is the SAME per-generation `random.Random` instance
+    threaded through generator.py - subclasses' render_text() should pass
+    `self._rng` on to phrasing.py's template-choosing functions so wording
+    variety is a deterministic function of the puzzle's seed too (not just
+    the layout/solution/clue-set), which the seed system depends on.
+    Defaults to None (falls back to the global `random` module) so
+    existing call sites that don't care about determinism - most of the
+    test suite - are unaffected."""
 
     tier: int
 
-    def __init__(self, scope: frozenset[Cell], grid: Grid):
+    def __init__(self, scope: frozenset[Cell], grid: Grid, rng: random.Random | None = None):
         self.id: str = f"clue{next(_id_counter)}"
         self.scope: frozenset[Cell] = scope
+        self._rng: random.Random = rng if rng is not None else random
         self.text: str = self.render_text(grid)
 
     @abstractmethod

@@ -18,16 +18,23 @@ NAMES = [
 PROFESSIONS = ["Chef", "Cop", "Doctor", "Teacher", "Engineer"]
 POOL = [Person(NAMES[i], PROFESSIONS[i % len(PROFESSIONS)]) for i in range(len(NAMES))]
 
-# Hard's require_combination gate (see difficulty.py/reasoner.py) means
-# generation must prove a clue set is genuinely unsolvable via tiers 0-3
-# alone, not just find *a* solvable set - noticeably slower and far more
-# variable than Easy/Medium (see config.py's GENERATION_TIME_BUDGET_SECONDS
-# comment). Give it a per-puzzle ceiling matching that same budget, and
-# fewer samples than Easy/Medium to keep overall test runtime reasonable.
+# v8 tier reshuffle (see difficulty.py): Easy is the old trivial-fast
+# tier's replacement (today's old Medium params) and stays cheap. Medium
+# and Hard both now carry require_combination (today's old Hard's
+# mechanics - genuinely proving a clue set unsolvable via tiers 0-3 alone
+# is inherently slower and more variable than a plain solvability check),
+# so they get generous per-puzzle ceilings and fewer samples than Easy to
+# keep overall test runtime reasonable. Ceilings measured via a 12-15 seed
+# controlled sweep after the v8 reasoner.py/solver_cpsat.py performance
+# fixes (see their docstrings): Medium's observed max was ~19s, Hard's
+# ~23s (candidate_pool_size=3 adds the "generate a few, keep best-paced"
+# search on top of Medium's mechanics, but wasn't reliably slower in that
+# sweep) - both budgets below add a healthy margin over that, not a tight
+# fit to it.
 DIFFICULTY_SETTINGS = {
     "easy": {"n": 8, "max_seconds": 3.0},
-    "medium": {"n": 8, "max_seconds": 5.0},
-    "hard": {"n": 2, "max_seconds": 90.0},
+    "medium": {"n": 6, "max_seconds": 40.0},
+    "hard": {"n": 4, "max_seconds": 45.0},
 }
 
 
@@ -94,7 +101,7 @@ def test_generated_puzzles_are_valid(difficulty):
             replay_steps = _replay_attachment(data.starter_cell, data.solution, data.cell_clue, params)
             assert replay_steps is not None
             quality = analyze_attachment_steps(replay_steps)
-            assert quality.first_combination_fraction is not None
+            assert quality.combination_step_count >= max(1, params.min_combination_steps)
 
         # The starter cell is consistent with the true solution.
         assert data.solution[data.starter_cell] in (True, False)
@@ -132,3 +139,20 @@ def test_generation_rejects_bad_difficulty():
 def test_generation_rejects_undersized_pool():
     with pytest.raises(ValueError):
         generate_puzzle(POOL[: NUM_CELLS - 1], "easy", rng=random.Random(0))
+
+
+@pytest.mark.parametrize("difficulty", ["easy", "medium"])
+def test_same_seed_reproduces_identical_puzzle(difficulty):
+    # The seed system's core promise: same seed + same difficulty + same
+    # roster -> the exact same puzzle every time, including clue *text*
+    # (phrasing.py's template variety must be seeded too, not drawn from
+    # the global `random` module - see clues/base.py's Clue._rng).
+    def generate():
+        data = generate_puzzle(POOL, difficulty, rng=random.Random("reproducibility-check"))
+        layout = [(p.name, p.profession) for row in data.layout for p in row]
+        clue_texts = sorted((cell, clue.text, clue.tier) for cell, clue in data.cell_clue.items())
+        return layout, data.solution, data.starter_cell, clue_texts
+
+    first = generate()
+    second = generate()
+    assert first == second

@@ -28,7 +28,7 @@ import time
 from dataclasses import dataclass
 
 from backend.app.config import (
-    EXTRA_CANDIDATE_TIME_BUDGET_S,
+    EXTRA_CANDIDATE_ATTEMPT_BUDGET,
     GENERATION_TIME_BUDGET_SECONDS,
     GRID_COLS,
     GRID_ROWS,
@@ -58,8 +58,12 @@ from backend.app.core.types import (
     all_neighbor_cells,
     cells_above,
     cells_below,
+    cells_east_of,
     cells_left_of,
+    cells_north_of,
     cells_right_of,
+    cells_south_of,
+    cells_west_of,
     col_cells,
     corner_cells,
     edge_cells,
@@ -116,6 +120,7 @@ def _make_count_clue_if_allowed(
     layout: Grid,
     difficulty: DifficultyParams,
     index=None,
+    rng: random.Random | None = None,
 ) -> Clue | None:
     """Build a CountConstraintClue, unless its target happens to be extreme
     (0 or the full scope - a tier-1 "everyone/no one" giveaway) and this
@@ -127,13 +132,17 @@ def _make_count_clue_if_allowed(
     is_extreme = target in (0, len(scope))
     if is_extreme and not difficulty.allow_tier1:
         return None
-    return CountConstraintClue(scope, scope_kind, target, layout, index=index)
+    return CountConstraintClue(scope, scope_kind, target, layout, index=index, rng=rng)
 
 
 def _relative_region_scopes(rng: random.Random) -> list[ScopeDescriptor]:
-    """Person-relative directional regions (above/below/left/right of an
-    anchor person) - mechanically as simple as a row/column clue, so
-    offered at every difficulty with no gating flag."""
+    """Person-relative directional regions, two families competing as
+    separate candidates: the cluesbysam-consistent same-row/column-only
+    version (ABOVE/BELOW/LEFT_OF/RIGHT_OF, "über/unter/links/rechts von
+    X") and the original whole-half-grid version (NORTH_OF/SOUTH_OF/
+    WEST_OF/EAST_OF, "nördlich/südlich/westlich/östlich von X"). Both are
+    mechanically as simple as a row/column clue, so offered at every
+    difficulty with no gating flag."""
     scopes: list[ScopeDescriptor] = []
     for cell in ALL_CELLS:
         for kind, fn in (
@@ -141,6 +150,10 @@ def _relative_region_scopes(rng: random.Random) -> list[ScopeDescriptor]:
             (ScopeKind.BELOW, cells_below),
             (ScopeKind.LEFT_OF, cells_left_of),
             (ScopeKind.RIGHT_OF, cells_right_of),
+            (ScopeKind.NORTH_OF, cells_north_of),
+            (ScopeKind.SOUTH_OF, cells_south_of),
+            (ScopeKind.WEST_OF, cells_west_of),
+            (ScopeKind.EAST_OF, cells_east_of),
         ):
             scope = fn(cell)
             if scope:
@@ -188,12 +201,19 @@ def build_candidate_pool(
     pool: list[Clue] = []
 
     # A handful of direct reveals - kept scarce so the puzzle can't lean on
-    # "just tell them", but always available as a bootstrapping seed.
+    # "just tell them", but always available as a bootstrapping seed. Each
+    # also gets a neighbor-framed twin (same fact, different flavor text -
+    # see DirectRevealClue's docstring for why that's free setup for a
+    # later neighbor-count deduction) as an alternative candidate.
     for cell in rng.sample(ALL_CELLS, min(DIRECT_CLUE_SAMPLE_SIZE, NUM_CELLS)):
-        pool.append(DirectRevealClue(cell, solution[cell], layout))
+        pool.append(DirectRevealClue(cell, solution[cell], layout, rng=rng))
+        neighbors = all_neighbor_cells(cell)
+        if neighbors:
+            anchor = rng.choice(neighbors)
+            pool.append(DirectRevealClue(cell, solution[cell], layout, neighbor_context=anchor, rng=rng))
 
     def add_count(scope, kind, index=None):
-        clue = _make_count_clue_if_allowed(scope, kind, solution, layout, difficulty, index=index)
+        clue = _make_count_clue_if_allowed(scope, kind, solution, layout, difficulty, index=index, rng=rng)
         if clue is not None:
             pool.append(clue)
 
@@ -227,7 +247,7 @@ def build_candidate_pool(
         rng.shuffle(parity_sources)
         for scope, kind, index in parity_sources[:PARITY_SAMPLE_SIZE]:
             target = _group_count(solution, scope)
-            pool.append(ParityConstraintClue(scope, kind, target % 2 == 1, layout, index=index))
+            pool.append(ParityConstraintClue(scope, kind, target % 2 == 1, layout, index=index, rng=rng))
 
     if difficulty.allow_custom_pair:
         groups = [row_cells(r) for r in range(GRID_ROWS)]
@@ -256,7 +276,7 @@ def build_candidate_pool(
                 and all(len(g) >= 2 for g in groups)
                 and all(any(solution[c] for c in g) for g in groups)
             ):
-                pool.append(AtLeastOneCriminalClue(groups, kind, layout))
+                pool.append(AtLeastOneCriminalClue(groups, kind, layout, rng=rng))
 
     if difficulty.allow_compare:
         pool.extend(_build_compare_candidates(layout, solution, professions, rng))
@@ -271,7 +291,18 @@ def build_candidate_pool(
 
 
 _INTERSECTION_KINDS = frozenset({ScopeKind.ROW_NEIGHBOR, ScopeKind.COL_NEIGHBOR})
-_RELATIVE_KINDS = frozenset({ScopeKind.ABOVE, ScopeKind.BELOW, ScopeKind.LEFT_OF, ScopeKind.RIGHT_OF})
+_RELATIVE_KINDS = frozenset(
+    {
+        ScopeKind.ABOVE,
+        ScopeKind.BELOW,
+        ScopeKind.LEFT_OF,
+        ScopeKind.RIGHT_OF,
+        ScopeKind.NORTH_OF,
+        ScopeKind.SOUTH_OF,
+        ScopeKind.WEST_OF,
+        ScopeKind.EAST_OF,
+    }
+)
 _REGION_KINDS = frozenset({ScopeKind.CORNER, ScopeKind.EDGE, ScopeKind.INTERIOR, ScopeKind.GLOBAL})
 
 
@@ -352,7 +383,7 @@ def _build_compare_candidates(
             sum_a = _group_count(solution, scope_a)
             sum_b = _group_count(solution, scope_b)
             relation = "EQ" if sum_a == sum_b else ("GT" if sum_a > sum_b else "LT")
-            candidates.append(CompareCountClue(scope_a, scope_b, relation, label_a, label_b, layout))
+            candidates.append(CompareCountClue(scope_a, scope_b, relation, label_a, label_b, layout, rng=rng))
 
     rng.shuffle(candidates)
     return candidates[:COMPARE_SAMPLE_SIZE]
@@ -382,7 +413,7 @@ def _build_neighbor_compare_candidates(
         relation = "EQ" if sum_a == sum_b else ("GT" if sum_a > sum_b else "LT")
         label_a = f"den Personen neben {identity_text(layout, a)}"
         label_b = f"den Personen neben {identity_text(layout, b)}"
-        candidates.append(CompareCountClue(scope_a, scope_b, relation, label_a, label_b, layout))
+        candidates.append(CompareCountClue(scope_a, scope_b, relation, label_a, label_b, layout, rng=rng))
 
     return candidates
 
@@ -745,8 +776,10 @@ def attach_clues_to_cells(
     # leverage to route around the combination step entirely (measured,
     # not assumed: this genuinely happens). Re-check against the actual
     # play sequence here, where it matters.
-    if difficulty.require_combination and quality.first_combination_fraction is None:
-        return None  # this attachment's actual play sequence never needed combination - retry
+    if difficulty.require_combination:
+        needed = max(1, difficulty.min_combination_steps)
+        if quality.combination_step_count < needed:
+            return None  # this attachment's actual play sequence didn't combine enough times - retry
 
     return starter_cell, cell_clue, quality
 
@@ -816,25 +849,29 @@ def generate_puzzle(
     the first, not a refinement of it - measured (not assumed) to roughly
     double median Hard generation time if bounded as a *fraction* of the
     whole budget, so instead: once at least one candidate exists, stop
-    hunting for more after EXTRA_CANDIDATE_TIME_BUDGET_S more seconds (an
-    absolute cap, predictable regardless of how generous the overall
-    budget is) - a bird in hand, rather than risking a much longer total
-    runtime chasing extras. Easy/Medium (`candidate_pool_size=1`) are
-    unaffected: the very first success still returns immediately, exactly
-    as before."""
+    hunting for more after EXTRA_CANDIDATE_ATTEMPT_BUDGET more attempts (a
+    count-based cap, not a wall-clock one - bounds cost predictably
+    *and*, unlike a time-based cutoff, makes the whole function a pure
+    function of `rng`'s sequence, which the seed system depends on: the
+    same seed must always produce the same puzzle regardless of how fast
+    the machine happens to be that moment). `time_budget_s` remains as an
+    outer safety net for genuinely pathological cases, not the primary
+    control. Easy/Medium (`candidate_pool_size=1`) are unaffected: the
+    very first success still returns immediately, exactly as before."""
     difficulty = get_difficulty(difficulty_name)
     rng = rng or random.Random()
     start = time.monotonic()
     target_candidates = max(1, difficulty.candidate_pool_size)
     candidates: list[tuple[PuzzleData, AttachmentQuality]] = []
-    first_candidate_at: float | None = None
+    attempts_since_first_candidate: int | None = None
 
     for _ in range(max_attempts):
-        elapsed = time.monotonic() - start
-        if elapsed > time_budget_s:
+        if time.monotonic() - start > time_budget_s:
             break
-        if first_candidate_at is not None and time.monotonic() - first_candidate_at > EXTRA_CANDIDATE_TIME_BUDGET_S:
+        if attempts_since_first_candidate is not None and attempts_since_first_candidate >= EXTRA_CANDIDATE_ATTEMPT_BUDGET:
             break
+        if attempts_since_first_candidate is not None:
+            attempts_since_first_candidate += 1
 
         layout = random_grid_layout(pool, rng)
         ratio = rng.uniform(*difficulty.criminal_ratio_range)
@@ -857,8 +894,8 @@ def generate_puzzle(
             cell_clue=cell_clue,
             difficulty=difficulty,
         )
-        if first_candidate_at is None:
-            first_candidate_at = time.monotonic()
+        if attempts_since_first_candidate is None:
+            attempts_since_first_candidate = 0
         candidates.append((data, quality))
         if len(candidates) >= target_candidates:
             break

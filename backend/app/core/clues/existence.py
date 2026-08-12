@@ -12,6 +12,8 @@ feel less linear (see the plan doc).
 
 from __future__ import annotations
 
+import random
+
 from backend.app.core.clues.base import Clue, ContradictionError
 from backend.app.core.clues.phrasing import group_existence_text
 from backend.app.core.types import Cell, Grid, KnownState, ScopeKind, Solution
@@ -20,11 +22,13 @@ from backend.app.core.types import Cell, Grid, KnownState, ScopeKind, Solution
 class AtLeastOneCriminalClue(Clue):
     tier = 2
 
-    def __init__(self, groups: list[list[Cell]], partition_kind: ScopeKind, grid: Grid):
+    def __init__(
+        self, groups: list[list[Cell]], partition_kind: ScopeKind, grid: Grid, rng: random.Random | None = None
+    ):
         self.groups: list[list[Cell]] = [list(g) for g in groups]
         self.partition_kind = partition_kind
         all_cells = frozenset(c for g in self.groups for c in g)
-        super().__init__(all_cells, grid)
+        super().__init__(all_cells, grid, rng=rng)
 
     def evaluate(self, solution: Solution) -> bool:
         return all(any(solution[c] for c in g) for g in self.groups)
@@ -45,4 +49,4 @@ class AtLeastOneCriminalClue(Clue):
         return facts
 
     def render_text(self, grid: Grid) -> str:
-        return group_existence_text(self, grid)
+        return group_existence_text(self, grid, rng=self._rng)

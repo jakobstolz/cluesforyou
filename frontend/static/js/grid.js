@@ -28,6 +28,13 @@ function renderGrid() {
       const nameEl = document.createElement("div");
       nameEl.className = "cell-name";
       nameEl.textContent = person.name;
+      if (state.easterEggHearts[r][c]) {
+        const heartEl = document.createElement("span");
+        heartEl.className = "easter-egg-heart";
+        heartEl.textContent = " ❤️";
+        heartEl.setAttribute("aria-hidden", "true");
+        nameEl.appendChild(heartEl);
+      }
 
       const profEl = document.createElement("div");
       profEl.className = "cell-profession";
@@ -73,6 +80,15 @@ function renderGrid() {
           onActivate();
         }
       });
+      // Tiny easter egg: double-clicking Annika (part of the default
+      // roster) toggles a heart next to her name. Purely cosmetic,
+      // client-only - doesn't touch guess/dialog state.
+      if (person.name === "Annika") {
+        cellEl.addEventListener("dblclick", () => {
+          state.easterEggHearts[r][c] = !state.easterEggHearts[r][c];
+          renderGrid();
+        });
+      }
 
       gridEl.appendChild(cellEl);
     }

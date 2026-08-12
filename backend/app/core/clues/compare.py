@@ -17,6 +17,8 @@ combined with several others.
 
 from __future__ import annotations
 
+import random
+
 from backend.app.core.clues.base import Clue, ContradictionError
 from backend.app.core.clues.phrasing import compare_clue_text
 from backend.app.core.types import Cell, Grid, KnownState, Solution
@@ -39,6 +41,7 @@ class CompareCountClue(Clue):
         label_a: str,
         label_b: str,
         grid: Grid,
+        rng: random.Random | None = None,
     ):
         if relation not in ("GT", "LT", "EQ"):
             raise ValueError("relation must be 'GT', 'LT', or 'EQ'")
@@ -47,7 +50,7 @@ class CompareCountClue(Clue):
         self.relation = relation
         self.label_a = label_a
         self.label_b = label_b
-        super().__init__(frozenset(self.scope_a) | frozenset(self.scope_b), grid)
+        super().__init__(frozenset(self.scope_a) | frozenset(self.scope_b), grid, rng=rng)
 
     def evaluate(self, solution: Solution) -> bool:
         sa = sum(1 for c in self.scope_a if solution[c])
@@ -110,4 +113,4 @@ class CompareCountClue(Clue):
         return {}
 
     def render_text(self, grid: Grid) -> str:
-        return compare_clue_text(self, grid)
+        return compare_clue_text(self, grid, rng=self._rng)

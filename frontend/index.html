@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CluesForYou</title>
+  <title>CluesForYou ❤️</title>
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
   <header class="app-header">
-    <h1>CluesForYou</h1>
-    <p class="tagline">Who's innocent? Who's a criminal? Deduce it.</p>
+    <h1>CluesForYou ❤️</h1>
+    <p class="tagline">Finde die schlimmen Finger bevor sie dich finden.</p>
   </header>
 
   <main>
@@ -26,6 +26,11 @@
             <label><input type="radio" name="difficulty" value="medium" /> Medium</label>
             <label><input type="radio" name="difficulty" value="hard" /> Hard</label>
           </div>
+        </div>
+
+        <div class="field-group">
+          <h3>Seed (optional)</h3>
+          <input type="text" id="seed-input" placeholder="Leave empty for random" maxlength="64" />
         </div>
 
         <p id="setup-error" class="error-text hidden"></p>
@@ -60,10 +65,11 @@
         <button id="hint-btn" type="button">💡 Hint</button>
         <button id="new-puzzle-btn" type="button">↺ New puzzle</button>
       </div>
+      <p class="seed-display" id="seed-display"></p>
       <p class="hint-message hidden" id="hint-message"></p>
 
       <div id="win-banner" class="win-banner hidden">
-        🎉 Solved it! Every person correctly identified.
+        🎉 Gute Käse!
       </div>
 
       <div class="game-layout">
@@ -80,7 +86,7 @@
       <button type="button" id="dialog-guess-innocent" class="guess-innocent">Innocent</button>
       <button type="button" id="dialog-guess-criminal" class="guess-criminal">Criminal</button>
     </div>
-    <p id="dialog-wrong-msg" class="error-text hidden">Not quite - try again.</p>
+    <p id="dialog-wrong-msg" class="error-text hidden">Bist du dir da gaaaaanz sicher?</p>
 
     <div id="dialog-reveal" class="dialog-reveal hidden">
       <span id="dialog-status-label" class="cell-status-label"></span>

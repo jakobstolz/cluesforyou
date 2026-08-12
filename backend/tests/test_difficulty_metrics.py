@@ -115,6 +115,7 @@ def test_analyze_attachment_steps_empty():
     assert q.reveal_sizes == []
     assert q.first_combination_fraction is None
     assert q.combination_fraction_spread == 0.0
+    assert q.combination_step_count == 0
 
 
 def test_analyze_attachment_steps_groups_reveal_sizes_by_clue():
@@ -152,6 +153,7 @@ def test_analyze_attachment_steps_spread_across_multiple_combination_steps():
     q = analyze_attachment_steps(steps)
     assert q.first_combination_fraction == 0.0  # first step is a combine step
     assert q.combination_fraction_spread > 0.0  # two combine steps, spread apart
+    assert q.combination_step_count == 2  # drives Hard's min_combination_steps requirement
 
 
 def test_score_prefers_smaller_max_reveal_size_regardless_of_difficulty():
@@ -193,6 +195,15 @@ def test_score_ignores_combination_timing_when_difficulty_does_not_allow_it():
 def test_candidate_pool_size_only_expanded_for_hard():
     # Easy/Medium keep candidate_pool_size=1 (generate_puzzle returns the
     # very first success immediately, unaffected by generate-N-pick-best).
+    # The best-of-N search is Hard-only (v8: dropped from Medium, which
+    # inherited it briefly from the pre-reshuffle Hard preset).
     assert EASY.candidate_pool_size == 1
     assert MEDIUM.candidate_pool_size == 1
     assert HARD.candidate_pool_size > 1
+
+
+def test_min_combination_steps_only_raised_for_hard():
+    # v8's new "genuinely harder Hard" lever: Medium keeps the implicit
+    # default (>=1 combination moment), Hard demands >=2.
+    assert MEDIUM.min_combination_steps == 1
+    assert HARD.min_combination_steps == 2

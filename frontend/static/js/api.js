@@ -12,8 +12,8 @@ const api = {
   async deleteRosterEntry(id) {
     return api._json(`/api/roster/${id}`, "DELETE", null, /* expectBody */ false);
   },
-  async generatePuzzle(difficulty) {
-    return api._json("/api/puzzle", "POST", { difficulty });
+  async generatePuzzle(difficulty, seed) {
+    return api._json("/api/puzzle", "POST", { difficulty, seed: seed || null });
   },
   async guess(puzzleId, row, col, guess) {
     return api._json("/api/guess", "POST", { puzzle_id: puzzleId, row, col, guess });

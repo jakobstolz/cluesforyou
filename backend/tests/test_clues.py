@@ -206,7 +206,7 @@ def test_count_neighbor_scope(grid):
     scope = all_neighbor_cells(center)
     clue = CountConstraintClue(scope, ScopeKind.NEIGHBOR, target=2, grid=grid, index=center)
     assert len(scope) == 8
-    assert "neben" in clue.text
+    assert "Nachbarn" in clue.text
     assert clue.evaluate(make_solution(scope[:2])) is True
 
 

@@ -5,6 +5,15 @@ else stay English - see core/funfacts.py and the frontend). Wording is
 approximate, not grammatically polished - kept separate from the clue
 classes so it can be tuned/expanded without touching
 evaluation/propagation/CP-SAT logic.
+
+Every function here takes an optional `rng` (a `random.Random` instance)
+used for template selection - defaults to the global `random` module when
+omitted (fine for anything that doesn't care about determinism, e.g. most
+of the test suite). Clue subclasses pass their own `self._rng` (see
+clues/base.py) - the same per-generation instance threaded through
+generator.py - so wording variety is a deterministic function of the
+puzzle's seed too, not just its layout/solution/clue-set. Never use the
+bare `random` module directly in this file for that reason.
 """
 
 from __future__ import annotations
@@ -20,9 +29,30 @@ DIRECT_TEMPLATES = [
 ]
 
 
-def direct_clue_text(identity: str, is_criminal: bool) -> str:
+def direct_clue_text(identity: str, is_criminal: bool, rng: random.Random | None = None) -> str:
+    rng = rng if rng is not None else random
     status = "kriminell" if is_criminal else "unschuldig"
-    return random.choice(DIRECT_TEMPLATES).format(identity=identity, status=status)
+    return rng.choice(DIRECT_TEMPLATES).format(identity=identity, status=status)
+
+
+_NEIGHBOR_DIRECT_TEMPLATES = {
+    True: [
+        "{identity} ist eine(r) von {neighbor}s kriminellen Nachbarn.",
+        "{identity} gehört zu {neighbor}s kriminellen Nachbarn.",
+    ],
+    False: [
+        "{identity} ist eine(r) von {neighbor}s unschuldigen Nachbarn.",
+        "{identity} gehört zu {neighbor}s unschuldigen Nachbarn.",
+    ],
+}
+
+
+def neighbor_direct_clue_text(
+    identity: str, neighbor_identity: str, is_criminal: bool, rng: random.Random | None = None
+) -> str:
+    rng = rng if rng is not None else random
+    template = rng.choice(_NEIGHBOR_DIRECT_TEMPLATES[is_criminal])
+    return template.format(identity=identity, neighbor=neighbor_identity)
 
 
 _GROUP_TEMPLATES_ZERO = [
@@ -49,13 +79,13 @@ PAIR_TEMPLATES = {
 }
 
 
-def _group_phrase(group: str, target: int, n: int) -> str:
+def _group_phrase(group: str, target: int, n: int, rng: random.Random) -> str:
     if target == 0:
-        template = random.choice(_GROUP_TEMPLATES_ZERO)
+        template = rng.choice(_GROUP_TEMPLATES_ZERO)
     elif target == n:
-        template = random.choice(_GROUP_TEMPLATES_FULL)
+        template = rng.choice(_GROUP_TEMPLATES_FULL)
     else:
-        template = random.choice(_GROUP_TEMPLATES_GENERAL)
+        template = rng.choice(_GROUP_TEMPLATES_GENERAL)
     return template.format(group=group, target=target, n=n)
 
 
@@ -64,7 +94,8 @@ def _describe_scope(clue, grid: Grid) -> str:
     clue's scope, driven by scope_kind/index. Shared between count and
     parity phrasing (CUSTOM_PAIR is handled separately by each - its
     phrasing names the two people directly rather than describing a
-    group)."""
+    group). Doesn't itself pick between template variants, so it needs
+    no rng."""
     kind = clue.scope_kind
     if kind == ScopeKind.ROW:
         return f"in Reihe {clue.index + 1}"
@@ -98,18 +129,63 @@ def _describe_scope(clue, grid: Grid) -> str:
         return f"links von {identity_text(grid, clue.index)}"
     if kind == ScopeKind.RIGHT_OF:
         return f"rechts von {identity_text(grid, clue.index)}"
+    if kind == ScopeKind.NORTH_OF:
+        return f"nördlich von {identity_text(grid, clue.index)}"
+    if kind == ScopeKind.SOUTH_OF:
+        return f"südlich von {identity_text(grid, clue.index)}"
+    if kind == ScopeKind.WEST_OF:
+        return f"westlich von {identity_text(grid, clue.index)}"
+    if kind == ScopeKind.EAST_OF:
+        return f"östlich von {identity_text(grid, clue.index)}"
     raise ValueError(f"Unknown scope kind: {kind}")
 
 
-def count_clue_text(clue, grid: Grid) -> str:
+_NEIGHBOR_TEMPLATES_ZERO = [
+    "Keiner von {identity}s Nachbarn ist kriminell.",
+    "Alle Nachbarn von {identity} sind unschuldig.",
+]
+_NEIGHBOR_TEMPLATES_FULL = [
+    "Alle Nachbarn von {identity} sind kriminell.",
+    "Keiner von {identity}s Nachbarn ist unschuldig.",
+]
+_NEIGHBOR_TEMPLATES_GENERAL = [
+    "{target} von {n} {identity}s Nachbarn sind kriminell.",
+    "Genau {target} von {identity}s Nachbarn sind kriminell.",
+    "Unter {identity}s Nachbarn sind genau {target} kriminell.",
+]
+
+
+def _neighbor_count_phrase(identity: str, target: int, n: int, rng: random.Random) -> str:
+    if target == 0:
+        template = rng.choice(_NEIGHBOR_TEMPLATES_ZERO)
+    elif target == n:
+        template = rng.choice(_NEIGHBOR_TEMPLATES_FULL)
+    else:
+        template = rng.choice(_NEIGHBOR_TEMPLATES_GENERAL)
+    return template.format(identity=identity, target=target, n=n)
+
+
+def count_clue_text(clue, grid: Grid, rng: random.Random | None = None) -> str:
+    rng = rng if rng is not None else random
     if clue.scope_kind == ScopeKind.CUSTOM_PAIR:
         a_identity = identity_text(grid, clue.scope_list[0])
         b_identity = identity_text(grid, clue.scope_list[1])
-        template = random.choice(PAIR_TEMPLATES[clue.target])
+        template = rng.choice(PAIR_TEMPLATES[clue.target])
         return template.format(a=a_identity, b=b_identity)
 
+    # Plain NEIGHBOR scope gets its own "X's neighbors" phrasing instead
+    # of the generic "{group}" templates below - reads more naturally as
+    # a possessive noun phrase than "neben X" ever did. Intersection
+    # scopes (ROW_NEIGHBOR/COL_NEIGHBOR) keep the generic "neben"
+    # phrasing via _describe_scope, since they're already a compound
+    # description ("in row 2 neighboring X") that doesn't reduce to a
+    # simple possessive as cleanly.
+    if clue.scope_kind == ScopeKind.NEIGHBOR:
+        identity = identity_text(grid, clue.index)
+        return _neighbor_count_phrase(identity, clue.target, len(clue.scope_list), rng)
+
     group = _describe_scope(clue, grid)
-    return _group_phrase(group, clue.target, len(clue.scope_list))
+    return _group_phrase(group, clue.target, len(clue.scope_list), rng)
 
 
 _PARITY_TEMPLATES = [
@@ -117,11 +193,22 @@ _PARITY_TEMPLATES = [
     "Eine {parity} Anzahl an Kriminellen ist {group}.",
 ]
 
+_NEIGHBOR_PARITY_TEMPLATES = [
+    "Eine {parity} Anzahl von {identity}s Nachbarn ist kriminell.",
+    "Unter {identity}s Nachbarn ist die Anzahl der Kriminellen {parity}.",
+]
 
-def parity_clue_text(clue, grid: Grid) -> str:
-    group = _describe_scope(clue, grid)
+
+def parity_clue_text(clue, grid: Grid, rng: random.Random | None = None) -> str:
+    rng = rng if rng is not None else random
     parity_word = "ungerade" if clue.is_odd else "gerade"
-    text = random.choice(_PARITY_TEMPLATES).format(parity=parity_word, group=group)
+    if clue.scope_kind == ScopeKind.NEIGHBOR:
+        identity = identity_text(grid, clue.index)
+        text = rng.choice(_NEIGHBOR_PARITY_TEMPLATES).format(parity=parity_word, identity=identity)
+        return text[0].upper() + text[1:]
+
+    group = _describe_scope(clue, grid)
+    text = rng.choice(_PARITY_TEMPLATES).format(parity=parity_word, group=group)
     return text[0].upper() + text[1:]
 
 
@@ -145,15 +232,16 @@ EXISTENCE_TEMPLATES = {
 }
 
 
-def group_existence_text(clue, grid: Grid) -> str:
+def group_existence_text(clue, grid: Grid, rng: random.Random | None = None) -> str:
+    rng = rng if rng is not None else random
     templates = EXISTENCE_TEMPLATES.get(clue.partition_kind)
     if not templates:
         raise ValueError(f"Unknown partition kind: {clue.partition_kind}")
-    return random.choice(templates)
+    return rng.choice(templates)
 
 
 COMPARE_TEMPLATES = [
-    "Es gibt mehr Kriminelle unter den {greater} als unter den{lesser}.",
+    "Es gibt mehr Kriminelle unter den {greater} als unter den {lesser}.",
     "Es gibt weniger Unschuldige unter den {greater} als unter den {lesser}.",
 ]
 
@@ -163,15 +251,16 @@ EQ_COMPARE_TEMPLATES = [
 ]
 
 
-def compare_clue_text(clue, grid: Grid) -> str:
+def compare_clue_text(clue, grid: Grid, rng: random.Random | None = None) -> str:
+    rng = rng if rng is not None else random
     if clue.relation == "EQ":
-        text = random.choice(EQ_COMPARE_TEMPLATES).format(a=clue.label_a, b=clue.label_b)
+        text = rng.choice(EQ_COMPARE_TEMPLATES).format(a=clue.label_a, b=clue.label_b)
         return text[0].upper() + text[1:]
 
     if clue.relation == "GT":
         greater_label, lesser_label = clue.label_a, clue.label_b
     else:
         greater_label, lesser_label = clue.label_b, clue.label_a
-    template = random.choice(COMPARE_TEMPLATES)
+    template = rng.choice(COMPARE_TEMPLATES)
     text = template.format(greater=greater_label, lesser=lesser_label)
     return text[0].upper() + text[1:]

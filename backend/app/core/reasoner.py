@@ -24,10 +24,34 @@ from backend.app.core.types import ALL_CELLS, Cell, KnownState
 COMBINE_PREFIX = "combine:"
 
 
-def _derive_pair_facts(a: CountConstraintClue, b: CountConstraintClue, known: KnownState) -> KnownState:
-    """If `a`'s scope is a strict subset of `b`'s, basic set arithmetic
-    gives an exact target for the difference region B\\A for free: since
-    sum(B) = sum(A) + sum(B\\A) always, sum(B\\A) = b.target - a.target -
+def _subset_pairs(count_clues: list[CountConstraintClue]) -> list[tuple[CountConstraintClue, CountConstraintClue, list[Cell]]]:
+    """Precompute every (small, big, diff) triple among `count_clues` where
+    small's scope is a strict subset of big's - the only pairs
+    `_derive_pair_facts` can ever produce anything from (an equal/disjoint/
+    partial-overlap pair always returns {} regardless of `known`, since
+    the identity it relies on needs a genuine subset relationship).
+    Clue scopes are fixed for the lifetime of a clue, so this relationship
+    never changes across `propagate_to_fixpoint`'s rounds - computing it
+    once up front instead of re-deriving it (via a fresh `set(...)` build
+    and subset check) on every round for every pair, most of which aren't
+    subset pairs at all, was measured as the dominant generation-time cost
+    for combination-requiring difficulties."""
+    pairs: list[tuple[CountConstraintClue, CountConstraintClue, list[Cell]]] = []
+    for a, b in itertools.combinations(count_clues, 2):
+        scope_a = a.scope
+        scope_b = b.scope
+        if scope_a < scope_b:
+            pairs.append((a, b, [c for c in b.scope_list if c not in scope_a]))
+        elif scope_b < scope_a:
+            pairs.append((b, a, [c for c in a.scope_list if c not in scope_b]))
+    return pairs
+
+
+def _derive_pair_facts(a: CountConstraintClue, b: CountConstraintClue, diff: list[Cell], known: KnownState) -> KnownState:
+    """`a`'s scope is a strict subset of `b`'s (guaranteed by the caller -
+    see `_subset_pairs`) and `diff` is B\\A: basic set arithmetic gives an
+    exact target for that difference region for free, since
+    sum(B) = sum(A) + sum(B\\A) always, so sum(B\\A) = b.target - a.target -
     no assumption needed, it's an identity, not a guess. Apply the same
     tight-case forcing CountConstraintClue.propagate uses on that derived
     region. This is the "hold two clues in your head and subtract one
@@ -39,12 +63,6 @@ def _derive_pair_facts(a: CountConstraintClue, b: CountConstraintClue, known: Kn
     about the real solution, so the identity above can't fail there) -
     raising ContradictionError here is correct and, as a side effect,
     strengthens tier-4/5 hypothesis testing for free."""
-    scope_a = set(a.scope_list)
-    scope_b = set(b.scope_list)
-    if not scope_a < scope_b:  # strict subset required; equal/disjoint/partial give nothing
-        return {}
-
-    diff = [c for c in b.scope_list if c not in scope_a]
     diff_target = b.target - a.target
     unknowns = [c for c in diff if c not in known]
     known_criminals = sum(1 for c in diff if known.get(c) is True)
@@ -77,6 +95,7 @@ def propagate_to_fixpoint(
     known = dict(known)
     steps: list[Step] = []
     count_clues = [c for c in clues if isinstance(c, CountConstraintClue)] if allow_combination else []
+    subset_pairs = _subset_pairs(count_clues) if allow_combination else []
     round_num = 0
 
     def _commit(
@@ -108,24 +127,23 @@ def propagate_to_fixpoint(
                     changed = True
 
         if allow_combination:
-            for a, b in itertools.combinations(count_clues, 2):
-                for src, dst in ((a, b), (b, a)):
-                    used_cells = frozenset(c for c in (src.scope | dst.scope) if c in known)
-                    try:
-                        new_facts = _derive_pair_facts(src, dst, known)
-                    except ContradictionError as exc:
-                        exc.depth = len(steps)
-                        raise
-                    if not new_facts:
-                        continue
-                    clue_id = f"{COMBINE_PREFIX}{src.id}:{dst.id}"
-                    text = (
-                        f"Combining \"{src.text}\" with \"{dst.text}\" pins down the rest "
-                        f"of the second group."
-                    )
-                    for cell, value in new_facts.items():
-                        if _commit(cell, value, clue_id, 3, text, used_cells, (src.id, dst.id)):
-                            changed = True
+            for src, dst, diff in subset_pairs:
+                used_cells = frozenset(c for c in (src.scope | dst.scope) if c in known)
+                try:
+                    new_facts = _derive_pair_facts(src, dst, diff, known)
+                except ContradictionError as exc:
+                    exc.depth = len(steps)
+                    raise
+                if not new_facts:
+                    continue
+                clue_id = f"{COMBINE_PREFIX}{src.id}:{dst.id}"
+                text = (
+                    f"Combining \"{src.text}\" with \"{dst.text}\" pins down the rest "
+                    f"of the second group."
+                )
+                for cell, value in new_facts.items():
+                    if _commit(cell, value, clue_id, 3, text, used_cells, (src.id, dst.id)):
+                        changed = True
 
         round_num += 1
 

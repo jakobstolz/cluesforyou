@@ -8,6 +8,8 @@ described in text differ.
 
 from __future__ import annotations
 
+import random
+
 from backend.app.core.clues.base import Clue, ContradictionError
 from backend.app.core.clues.phrasing import count_clue_text
 from backend.app.core.types import Cell, Grid, KnownState, ScopeKind, Solution
@@ -21,6 +23,7 @@ class CountConstraintClue(Clue):
         target: int,
         grid: Grid,
         index=None,
+        rng: random.Random | None = None,
     ):
         self.scope_list: list[Cell] = list(scope)
         self.scope_kind = scope_kind
@@ -31,7 +34,7 @@ class CountConstraintClue(Clue):
         self.index = index
         n = len(self.scope_list)
         self.tier = 1 if target in (0, n) else 2
-        super().__init__(frozenset(self.scope_list), grid)
+        super().__init__(frozenset(self.scope_list), grid, rng=rng)
 
     def evaluate(self, solution: Solution) -> bool:
         return sum(1 for c in self.scope_list if solution[c]) == self.target
@@ -56,4 +59,4 @@ class CountConstraintClue(Clue):
         return {}
 
     def render_text(self, grid: Grid) -> str:
-        return count_clue_text(self, grid)
+        return count_clue_text(self, grid, rng=self._rng)

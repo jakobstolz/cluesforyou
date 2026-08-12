@@ -21,10 +21,12 @@ GENERATION_TIME_BUDGET_SECONDS = 90.0
 # first one did (a fresh random attempt, not a refinement) - a *fraction*
 # of the whole time budget was measured to roughly double median Hard
 # generation time (30s -> 63s on identical seeds). Capping the "extra
-# candidate hunting" time absolutely, instead of as a fraction of the
-# total budget, bounds that cost predictably regardless of how generous
-# the overall budget is.
-EXTRA_CANDIDATE_TIME_BUDGET_S = 15.0
+# candidate hunting" by ATTEMPT COUNT rather than wall-clock time bounds
+# that cost predictably regardless of machine speed, AND (unlike a
+# wall-clock cutoff) makes generation a pure function of the rng
+# sequence - required for the seed system (same seed -> same puzzle,
+# not "same puzzle, unless this machine happened to be slower today").
+EXTRA_CANDIDATE_ATTEMPT_BUDGET = 40
 
 # Grid size
 GRID_ROWS = 5

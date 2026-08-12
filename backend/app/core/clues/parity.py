@@ -10,6 +10,8 @@ any single one, only by combining several.
 
 from __future__ import annotations
 
+import random
+
 from backend.app.core.clues.base import Clue, ContradictionError
 from backend.app.core.clues.phrasing import parity_clue_text
 from backend.app.core.types import Cell, Grid, KnownState, ScopeKind, Solution
@@ -25,12 +27,13 @@ class ParityConstraintClue(Clue):
         is_odd: bool,
         grid: Grid,
         index=None,
+        rng: random.Random | None = None,
     ):
         self.scope_list: list[Cell] = list(scope)
         self.scope_kind = scope_kind
         self.is_odd = is_odd
         self.index = index
-        super().__init__(frozenset(self.scope_list), grid)
+        super().__init__(frozenset(self.scope_list), grid, rng=rng)
 
     def evaluate(self, solution: Solution) -> bool:
         count = sum(1 for c in self.scope_list if solution[c])
@@ -57,4 +60,4 @@ class ParityConstraintClue(Clue):
         return {}
 
     def render_text(self, grid: Grid) -> str:
-        return parity_clue_text(self, grid)
+        return parity_clue_text(self, grid, rng=self._rng)

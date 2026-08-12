@@ -41,6 +41,18 @@ class UpsertRosterEntryRequest(BaseModel):
 
 class GeneratePuzzleRequest(BaseModel):
     difficulty: Literal["easy", "medium", "hard"]
+    # Optional player-supplied seed - same seed + same difficulty + same
+    # roster always generates the same puzzle (see generator.py). Empty/
+    # whitespace-only is treated as "no seed" (auto-generate one).
+    seed: str | None = Field(default=None, max_length=64)
+
+    @field_validator("seed")
+    @classmethod
+    def _blank_seed_is_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
 
 
 class GridCellOut(BaseModel):
@@ -68,6 +80,7 @@ class PuzzleResponse(BaseModel):
     starter: StarterOut
     first_clue: ClueOut
     difficulty: str
+    seed: str  # the effective seed used - player-given, or freshly auto-generated if not
 
 
 class GuessRequest(BaseModel):

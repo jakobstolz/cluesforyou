@@ -20,11 +20,26 @@ def build_model(clues: list[Clue]) -> tuple[cp_model.CpModel, dict[Cell, cp_mode
     return model, cell_vars
 
 
+def _new_solver() -> cp_model.CpSolver:
+    """CP-SAT defaults to spinning up several parallel search workers, which
+    is the right call for genuinely hard models but pure overhead for these
+    - a model this size (NUM_CELLS boolean vars, a handful of linear
+    constraints) solves in well under a millisecond single-threaded, while
+    the default multi-worker setup was measured to cost ~15-20x more wall
+    time on problems this tiny (worker spin-up dominating actual solve
+    time). generate_puzzle calls this hundreds of times per attempt during
+    pruning, so this was the single biggest generation-latency win found -
+    bigger than any pool-size/attempt-budget tuning."""
+    solver = cp_model.CpSolver()
+    solver.parameters.num_search_workers = 1
+    return solver
+
+
 def cpsat_solve_any(clues: list[Clue]) -> Solution | None:
     """Return any feasible solution consistent with `clues`, or None if the
     clue set is inconsistent (unsatisfiable)."""
     model, cell_vars = build_model(clues)
-    solver = cp_model.CpSolver()
+    solver = _new_solver()
     status = solver.Solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return None
@@ -36,7 +51,7 @@ def cpsat_is_unique(clues: list[Clue]) -> bool:
     clue: solve once, block that exact solution, solve again — the second
     solve must come back infeasible."""
     model, cell_vars = build_model(clues)
-    solver = cp_model.CpSolver()
+    solver = _new_solver()
     status = solver.Solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return False  # inconsistent clue set - not a valid (let alone unique) puzzle

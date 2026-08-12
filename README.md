@@ -46,7 +46,12 @@ from anywhere, not just the same network).
    don't want - you need at least 20 in the pool to generate a puzzle.
    Every puzzle samples 20 of them, so a roster bigger than 20 gives you
    variety across replays.
-2. Pick a difficulty and hit **Generate puzzle**.
+2. Pick a difficulty, optionally type a **seed** (leave it blank for a
+   random one), and hit **Generate puzzle**. The same seed + difficulty +
+   roster always regenerates the exact same puzzle - useful for sharing a
+   specific one or coming back to a tricky puzzle later. The effective
+   seed (yours, or an auto-generated one if you left it blank) is shown
+   in the game screen so you can note it down.
 3. One person's status is revealed for free as your starting lead, along
    with their attached clue - which is usually a tip about *someone else*.
    Every one of the 20 people has exactly one thing attached to them: a real
@@ -75,31 +80,39 @@ profession pairs (Politiker/Politikerin, Mathematiker/Mathematikerin, ...)
 count as the same profession for clue purposes, even though the roster is
 free to hold both spellings.
 
+Person-relative directional clues come in two flavors at every difficulty:
+"über/unter/links von/rechts von X" only ever looks within X's own row or
+column (matches cluesbysam's convention), while "nördlich/südlich/
+westlich/östlich von X" looks across the whole half of the grid in that
+direction - a wider, usually stronger clue with the same underlying idea.
+
 Difficulties are tuned to require genuinely combining several clues, not
 just reading off one:
-- **Easy**: row/column/profession/region counts, plus person-relative
-  directional counts ("N criminals below Alice"), including the
-  occasional free "everyone/no one" giveaway.
-- **Medium**: no more giveaways - every clue takes some real
-  partial-count reasoning. Adds **neighbor** counts (a unified 8-cell
-  neighborhood - orthogonal and diagonal together, fewer on edges/corners),
-  intersection clues ("N criminals in row 2 neighboring Alice"), parity
-  clues ("an odd number of criminals in the interior"), pairwise clues, and
-  "every row/column/profession has at least one criminal" (a single clue
-  spanning every group at once, which tends to only pay off once several
-  *other* clues have already narrowed things down - a deliberately
-  non-linear one).
-- **Hard**: everything Medium has, plus comparison clues (including
-  equality), and - the main thing that makes Hard genuinely hard - every
-  Hard puzzle is guaranteed to require **combining two clues at once**:
-  reading two count clues whose groups overlap and subtracting one from
-  the other to figure out the rest (e.g. know the total for a row *and*
-  the count for just the people in it neighboring someone - the
-  difference tells you about everyone else in that row). This is a real,
-  checked requirement, not a maybe - which means Hard generation
-  sometimes has to search much harder for a valid puzzle than Easy/Medium
-  do. Generating a Hard puzzle typically takes a few seconds but can
-  occasionally take up to a minute or so; that's expected, not a bug.
+- **Easy**: row/column/profession/region counts, plus both flavors of
+  person-relative directional counts, **neighbor** counts (a unified
+  8-cell neighborhood - orthogonal and diagonal together, fewer on
+  edges/corners), intersection clues ("N criminals in row 2 neighboring
+  Alice"), parity clues ("an odd number of criminals in the interior"),
+  pairwise clues, and "every row/column/profession has at least one
+  criminal" (a single clue spanning every group at once, which tends to
+  only pay off once several *other* clues have already narrowed things
+  down). No "everyone/no one" giveaways - every clue takes some real
+  partial-count reasoning.
+- **Medium**: everything Easy has, plus comparison clues (including
+  equality), and - the main thing that makes Medium and Hard genuinely
+  harder than Easy - every puzzle is guaranteed to require **combining
+  two clues at once**: reading two count clues whose groups overlap and
+  subtracting one from the other to figure out the rest (e.g. know the
+  total for a row *and* the count for just the people in it neighboring
+  someone - the difference tells you about everyone else in that row).
+  This is a real, checked requirement, not a maybe.
+- **Hard**: everything Medium has, but pickier: it searches a few
+  candidate puzzles per attempt and keeps the best-paced one, demands at
+  least *two* genuinely separate combination moments during play (not
+  just one), and hands over less for free from the starting clue. Takes
+  noticeably longer to generate than Medium as a result, though nowhere
+  near as long as it once did (see the perf note below) - typically a
+  handful of seconds, occasionally up to 20-30s.
 
 ## Development
 
@@ -140,20 +153,19 @@ backend/tests/           pytest suite
    row or column narrowed to just one person's neighbors), parity clues,
    pairwise clues, "every group has a criminal" existence clues, and
    person-vs-person/group-vs-group comparisons (including equality),
-   depending on difficulty. Difficulties above Easy exclude "everyone/no
-   one" giveaway clues entirely, so every remaining clue takes some real
-   reasoning.
+   depending on difficulty. "Everyone/no one" giveaway clues are excluded
+   at every difficulty, so every clue takes some real reasoning.
 3. Grow a clue set (tiers 0-3 propagation only - fast) until it fully
    solves the grid, then prune away anything not actually needed. Pruning
    prefers to shed the *easiest* surviving clues first, concentrating
-   whatever difficulty survives into the final puzzle. On Hard, growth and
-   pruning both also enforce that the set stays genuinely *dependent* on
-   combining two clues (see below) the whole way through, not just at the
-   very end.
+   whatever difficulty survives into the final puzzle. On Medium/Hard,
+   growth and pruning both also enforce that the set stays genuinely
+   *dependent* on combining two clues (see below) the whole way through,
+   not just at the very end.
 4. Double-check with a CP-SAT solver that the surviving clue set has
    *exactly one* valid solution, and that it needs the difficulty's
-   minimum reasoning tier (Hard requires at least a comparison clue, and
-   separately, a genuine combination-reasoning dependency).
+   minimum reasoning tier (Medium/Hard require at least a comparison
+   clue, and separately, a genuine combination-reasoning dependency).
 5. Pick a starter cell, seed the reasoning trace with it, and walk the
    trace to attach each clue to a specific cell that's already knowable by
    the time it's needed. Cells that aren't chosen as a trigger (most of
@@ -162,22 +174,40 @@ backend/tests/           pytest suite
    to be immediately useful on its own (never dependent on reasoning the
    player hasn't unlocked yet).
 
-**What makes Hard actually hard:** the reasoning engine can cross-reference
-any two active count clues whose groups overlap - if one clue's group is
-entirely contained in another's, the difference between their two targets
-tells you exactly how many criminals are in the leftover region, which can
-force cells neither clue alone would ever reveal. This is real "hold two
-clues in your head and subtract one from the other" reasoning, not just a
-longer chain of single-clue deductions. Every Hard puzzle is checked to
-*genuinely need* this (solving the same clue set with that cross-
-referencing disabled is checked to fail), not just to have it available -
-proving that negative reliably is considerably more expensive to search
-for than Easy/Medium ever need, so Hard generation can occasionally take
-up to a minute or so (see `GENERATION_TIME_BUDGET_SECONDS` in `config.py`).
-Bounded hypothesis-testing ("assume this, propagate, check for a
-contradiction") is also available during play-time reasoning and
-occasionally shows up in Hard puzzles, but isn't separately mandatory the
-way combination is.
+**What makes Medium/Hard actually harder than Easy:** the reasoning engine
+can cross-reference any two active count clues whose groups overlap - if
+one clue's group is entirely contained in another's, the difference
+between their two targets tells you exactly how many criminals are in the
+leftover region, which can force cells neither clue alone would ever
+reveal. This is real "hold two clues in your head and subtract one from
+the other" reasoning, not just a longer chain of single-clue deductions.
+Every Medium/Hard puzzle is checked to *genuinely need* this (solving the
+same clue set with that cross-referencing disabled is checked to fail),
+not just to have it available; Hard additionally demands at least two
+separate combination moments during actual play, not just one. Proving
+that negative reliably is considerably more expensive to search for than
+Easy ever needs, so Medium/Hard generation can occasionally take tens of
+seconds (see `GENERATION_TIME_BUDGET_SECONDS` in `config.py`). Bounded
+hypothesis-testing ("assume this, propagate, check for a contradiction")
+is also available during play-time reasoning and occasionally shows up in
+Medium/Hard puzzles, but isn't separately mandatory the way combination
+is.
+
+**Why generation is faster than it used to be:** two fixes account for
+most of it, found by profiling an actually-slow seed rather than guessing.
+First, the CP-SAT uniqueness solver (`solver_cpsat.py`) was creating a
+fresh multi-worker solver for every call - fine for a genuinely hard model,
+but pure thread-spin-up overhead for a model this size (~20 boolean
+variables); pinning it to a single search worker cut its per-call cost by
+roughly 15-20x. Second, the combination-reasoning cross-reference
+(`reasoner.py`'s `_derive_pair_facts`) was re-deriving which clue-pairs
+even have a subset relationship (the only pairs it can ever learn anything
+from) from scratch on every propagation round; since clue scopes never
+change within one reasoning pass, that relationship is now computed once
+per pass instead. Together these took a representative slow seed from
+~54s down to ~12s, with the rest of the tier reshuffle's speed coming from
+Medium no longer paying for Hard's old "generate 3 candidates, keep the
+best" search.
 
 See `backend/app/core/generator.py` (`attach_clues_to_cells`,
 `select_clue_subset`) and `backend/app/core/reasoner.py` for the actual

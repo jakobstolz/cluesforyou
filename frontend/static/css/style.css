@@ -311,6 +311,10 @@ button:active:not(:disabled) {
   overflow-wrap: break-word;
 }
 
+.easter-egg-heart {
+  font-size: 0.85em;
+}
+
 .cell-profession {
   font-size: 0.66rem;
   color: var(--ink-soft);
@@ -470,6 +474,13 @@ dialog.cell-dialog::backdrop {
   font-size: 0.85rem;
   color: var(--accent);
   margin: 0 0 0.75rem;
+}
+
+.seed-display {
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  margin: -0.4rem 0 0.75rem;
+  font-family: monospace;
 }
 
 /* ---------- Wider screens: roomier setup/roster forms ---------- */

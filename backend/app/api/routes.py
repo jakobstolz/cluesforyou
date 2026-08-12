@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import random
+import secrets
+
 from fastapi import APIRouter, HTTPException
 
 from backend.app.config import GRID_COLS, GRID_ROWS, NUM_CELLS
@@ -110,8 +113,16 @@ def create_puzzle(req: GeneratePuzzleRequest) -> PuzzleResponse:
         )
     pool = [Person(e.name, e.profession) for e in roster]
 
+    # Same seed + same difficulty + same roster always generates the same
+    # puzzle (generate_puzzle's rng sequence is the only source of
+    # randomness - see its docstring). No seed given -> generate a short
+    # random one anyway, so even a "surprise me" puzzle can be noted down
+    # and reproduced/shared later.
+    effective_seed = req.seed or secrets.token_hex(8)
+    rng = random.Random(effective_seed)
+
     try:
-        data = generate_puzzle(pool, req.difficulty)
+        data = generate_puzzle(pool, req.difficulty, rng=rng)
     except GenerationTimeoutError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -139,6 +150,7 @@ def create_puzzle(req: GeneratePuzzleRequest) -> PuzzleResponse:
         starter=starter_out,
         first_clue=ClueOut(id=first_clue.id, text=first_clue.text, tier=first_clue.tier),
         difficulty=data.difficulty.name,
+        seed=effective_seed,
     )
 
 

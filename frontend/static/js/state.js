@@ -7,6 +7,7 @@ const state = {
   cellState: null, // 2D array of "unknown" | "innocent" | "criminal"
   cellReveal: null, // 2D array of null | {kind: "clue"|"funfact", text, tier} - lives on the cell itself
   cellDimmed: null, // 2D array of bool - client-only "greyed out" toggle for already-solved cells
+  easterEggHearts: null, // 2D array of bool - client-only, toggled by double-clicking Annika
 };
 
 function resetState() {
@@ -16,4 +17,5 @@ function resetState() {
   state.cellState = null;
   state.cellReveal = null;
   state.cellDimmed = null;
+  state.easterEggHearts = null;
 }

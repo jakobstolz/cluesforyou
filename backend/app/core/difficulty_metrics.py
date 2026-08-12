@@ -92,9 +92,10 @@ def compute_metrics(trace: ReasoningTrace) -> ReasoningMetrics:
 class AttachmentQuality:
     max_reveal_size: int  # largest number of cells any single attached clue's firing resolved at once
     reveal_sizes: list[int]  # per-firing-event reveal counts, for tests/inspection
-    first_combination_fraction: float | None  # position (0=earliest, 1=latest) of the first combine step; None if none occurred
-    combination_fraction_spread: float  # stddev of combine-step positions - 0 if <=1 combination step
-    combination_step_count: int  # how many distinct combine steps fired during replay - drives min_combination_steps (Hard)
+    first_combination_fraction: float | None  # position (0=earliest, 1=latest) of the first combine EVENT; None if none occurred
+    combination_fraction_spread: float  # stddev of combine-EVENT positions - 0 if <=1 combination event
+    combination_event_count: int  # how many *distinct* combine events fired during replay - drives min_combination_events (Hard)
+    combination_deduction_count: int  # total cells forced via combination across all events (>= combination_event_count)
 
 
 def analyze_attachment_steps(steps: list[Step]) -> AttachmentQuality:
@@ -102,16 +103,29 @@ def analyze_attachment_steps(steps: list[Step]) -> AttachmentQuality:
     `_replay_attachment`, which replays the actual attached play sequence,
     not the abstract full-pool solve). Groups by clue_id to get
     reveal-event sizes - "how many cells did the player learn about the
-    instant they read this one clue" - and positions combine steps
-    (`used_clue_ids` with 2 entries) as fractions of the total step count
-    to measure how early/spread-out combination reasoning was."""
+    instant they read this one clue" - and positions each combine EVENT
+    (grouped by clue_id, e.g. "combine:c3:c7" - one src/dst clue pair) as a
+    fraction of the total step count, to measure how early/spread-out
+    combination reasoning was.
+
+    Deliberately event-based, not step-based: `reasoner.py::_derive_pair_facts`
+    can force several cells in a single combination event (one src/dst pair
+    can pin down an entire multi-cell difference region at once), and
+    counting each of those forced cells as its own "combination" would
+    conflate "one moment of two-clue reasoning happened to unlock several
+    cells" with "the player had to independently combine clues several
+    times" - very different difficulty signals. `combination_event_count`
+    is the one that should ever gate difficulty (see min_combination_events
+    in difficulty.py); `combination_deduction_count` is kept separately as
+    an informational total, not something to require a minimum of."""
     if not steps:
         return AttachmentQuality(
             max_reveal_size=0,
             reveal_sizes=[],
             first_combination_fraction=None,
             combination_fraction_spread=0.0,
-            combination_step_count=0,
+            combination_event_count=0,
+            combination_deduction_count=0,
         )
 
     reveal_counts: dict[str, int] = {}
@@ -120,11 +134,21 @@ def analyze_attachment_steps(steps: list[Step]) -> AttachmentQuality:
     reveal_sizes = list(reveal_counts.values())
 
     n = len(steps)
-    combo_positions = [i / n for i, s in enumerate(steps) if len(s.used_clue_ids) > 1]
-    first_combination_fraction = combo_positions[0] if combo_positions else None
-    if len(combo_positions) > 1:
-        mean = sum(combo_positions) / len(combo_positions)
-        spread = (sum((p - mean) ** 2 for p in combo_positions) / len(combo_positions)) ** 0.5
+    combo_steps = [(i / n, s.clue_id) for i, s in enumerate(steps) if len(s.used_clue_ids) > 1]
+    combination_deduction_count = len(combo_steps)
+
+    # One position per distinct event (its first step's position), not one
+    # per forced cell - so a single event that forces 5 cells in a row
+    # doesn't masquerade as 5 separate "moments" for timing/spread purposes.
+    event_positions: dict[str, float] = {}
+    for position, clue_id in combo_steps:
+        event_positions.setdefault(clue_id, position)
+    positions = list(event_positions.values())
+
+    first_combination_fraction = positions[0] if positions else None
+    if len(positions) > 1:
+        mean = sum(positions) / len(positions)
+        spread = (sum((p - mean) ** 2 for p in positions) / len(positions)) ** 0.5
     else:
         spread = 0.0
 
@@ -133,7 +157,8 @@ def analyze_attachment_steps(steps: list[Step]) -> AttachmentQuality:
         reveal_sizes=reveal_sizes,
         first_combination_fraction=first_combination_fraction,
         combination_fraction_spread=spread,
-        combination_step_count=len(combo_positions),
+        combination_event_count=len(positions),
+        combination_deduction_count=combination_deduction_count,
     )
 
 

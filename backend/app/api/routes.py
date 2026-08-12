@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import random
 import secrets
+import time
 
 from fastapi import APIRouter, HTTPException
 
@@ -121,10 +122,29 @@ def create_puzzle(req: GeneratePuzzleRequest) -> PuzzleResponse:
     effective_seed = req.seed or secrets.token_hex(8)
     rng = random.Random(effective_seed)
 
+    # Plain print (not the logging module) deliberately: Render's log
+    # viewer captures raw stdout/stderr regardless of any logging-config
+    # ordering vs uvicorn's own setup, so this is guaranteed visible
+    # without fragility - the goal is just "if this times out in
+    # production, leave a trace with enough to reproduce it locally"
+    # (difficulty + seed + how long it ran before giving up), since
+    # generation is otherwise deterministic and a slow/weak host is the
+    # prime suspect for a seed that succeeds locally but not there.
+    t0 = time.monotonic()
     try:
         data = generate_puzzle(pool, req.difficulty, rng=rng)
     except GenerationTimeoutError as exc:
+        print(
+            f"[puzzle-gen] TIMEOUT difficulty={req.difficulty} seed={effective_seed!r} "
+            f"elapsed={time.monotonic() - t0:.1f}s",
+            flush=True,
+        )
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    print(
+        f"[puzzle-gen] OK difficulty={req.difficulty} seed={effective_seed!r} "
+        f"elapsed={time.monotonic() - t0:.1f}s clues={len(data.cell_clue)}",
+        flush=True,
+    )
 
     puzzle_id, _record = create_puzzle_record(
         data.layout, data.solution, data.starter_cell, data.cell_clue, data.difficulty

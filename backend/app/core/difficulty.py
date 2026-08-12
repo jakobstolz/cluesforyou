@@ -23,7 +23,7 @@ class DifficultyParams:
     require_min_tier: int = 0  # if set, generation rejects puzzles that never needed this tier
     min_chain_depth: int = 0  # Hard only: minimum forced-step depth before a hypothesis contradiction
     require_combination: bool = False  # Hard only: puzzle must genuinely need combination reasoning to solve
-    min_combination_steps: int = 1  # Hard only: how many *distinct* combination moments the attached play must use
+    min_combination_events: int = 1  # Hard only: how many *distinct* combination events the attached play must use (see AttachmentQuality.combination_event_count - deliberately not a count of individual forced deductions)
     max_starter_power: int | None = None  # Hard only: reject a starter clue that alone resolves too much for free
     candidate_pool_size: int = 1  # generate up to this many valid puzzles per attempt cycle and keep the best-paced
 
@@ -67,10 +67,10 @@ MEDIUM = DifficultyParams(
     allow_parity=True,
     allow_tier4=True,
     allow_combination=True,  # cross-referencing two count clues at once - see reasoner.py
-    require_min_tier=3,  # must genuinely need comparisons, not just counts
+    require_min_tier=2,  # must genuinely need comparisons, not just counts
     min_chain_depth=3,  # only enforced when tier 4 *does* get used - see select_clue_subset
     require_combination=True,  # must genuinely need to combine two clues, not just read one
-    max_starter_power=4,  # the free starting clue mustn't single-handedly resolve more than this many cells
+    max_starter_power=3,  # the free starting clue mustn't single-handedly resolve more than this many cells
     candidate_pool_size=1,  # no best-of-N search here - that expense moves up to Hard only (see v8 plan)
 )
 
@@ -88,11 +88,11 @@ HARD = DifficultyParams(
     allow_parity=True,
     allow_tier4=True,
     allow_combination=True,
-    require_min_tier=3,
+    require_min_tier=2,
     min_chain_depth=3,
     require_combination=True,
-    min_combination_steps=2,  # the *new* bar over Medium: at least two genuine combination moments, not just one
-    max_starter_power=3,  # tightened from Medium's 4 - even less handed over for free
+    min_combination_events=2,  # the *new* bar over Medium: at least two genuine combination moments, not just one
+    max_starter_power=2,  # tightened from Medium's 4 - even less handed over for free
     candidate_pool_size=3,  # compare up to 3 valid puzzles per attempt cycle, keep the best-paced (see difficulty_metrics.py)
 )
 

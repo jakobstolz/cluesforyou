@@ -241,8 +241,15 @@ def group_existence_text(clue, grid: Grid, rng: random.Random | None = None) -> 
 
 
 COMPARE_TEMPLATES = [
-    "Es gibt mehr Kriminelle unter den {greater} als unter den {lesser}.",
-    "Es gibt weniger Unschuldige unter den {greater} als unter den {lesser}.",
+    # No hardcoded article before {greater}/{lesser}: the label itself
+    # already carries whatever article it needs ("den Fußballer(innen)",
+    # "den Personen neben X") or needs none ("Reihe 1") - same convention
+    # EQ_COMPARE_TEMPLATES's "in {a}" already relies on below. Templating
+    # a "den" here too used to double up into "unter den den X" for any
+    # label that already had its own "den" - a real, confusing bug fixed
+    # by dropping it here instead of stripping "den" from every caller.
+    "Es gibt mehr Kriminelle unter {greater} als unter {lesser}.",
+    "Es gibt weniger Unschuldige unter {greater} als unter {lesser}.",
 ]
 
 EQ_COMPARE_TEMPLATES = [

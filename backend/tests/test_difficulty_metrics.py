@@ -115,7 +115,8 @@ def test_analyze_attachment_steps_empty():
     assert q.reveal_sizes == []
     assert q.first_combination_fraction is None
     assert q.combination_fraction_spread == 0.0
-    assert q.combination_step_count == 0
+    assert q.combination_event_count == 0
+    assert q.combination_deduction_count == 0
 
 
 def test_analyze_attachment_steps_groups_reveal_sizes_by_clue():
@@ -140,10 +141,10 @@ def test_analyze_attachment_steps_first_combination_fraction():
     ]
     q = analyze_attachment_steps(steps)
     assert q.first_combination_fraction == 4 / 5  # the combine step is the last (5th) of 5
-    assert q.combination_fraction_spread == 0.0  # only one combination step
+    assert q.combination_fraction_spread == 0.0  # only one combination event
 
 
-def test_analyze_attachment_steps_spread_across_multiple_combination_steps():
+def test_analyze_attachment_steps_spread_across_multiple_combination_events():
     steps = [
         Step("combine:a:b", 3, (0, 0), True, "text", used_clue_ids=("a", "b")),
         Step("c1", 0, (0, 1), True, "text", used_clue_ids=("c1",)),
@@ -152,8 +153,29 @@ def test_analyze_attachment_steps_spread_across_multiple_combination_steps():
     ]
     q = analyze_attachment_steps(steps)
     assert q.first_combination_fraction == 0.0  # first step is a combine step
-    assert q.combination_fraction_spread > 0.0  # two combine steps, spread apart
-    assert q.combination_step_count == 2  # drives Hard's min_combination_steps requirement
+    assert q.combination_fraction_spread > 0.0  # two combine events, spread apart
+    assert q.combination_event_count == 2  # drives Hard's min_combination_events requirement
+    assert q.combination_deduction_count == 2  # one forced cell per event here, so equal - see next test for the distinction
+
+
+def test_analyze_attachment_steps_one_event_forcing_several_cells_is_one_event_not_several():
+    # The bug this distinction fixes: reasoner.py's _derive_pair_facts can
+    # force an entire multi-cell difference region from a SINGLE src/dst
+    # combination (same clue_id, "combine:a:b", for every cell it forces in
+    # that one event) - that must count as ONE combination event, not one
+    # per forced cell, or difficulty.min_combination_events would be
+    # satisfiable by luck (one lucky event forcing 3 cells) instead of by
+    # genuinely needing several separate combination moments.
+    steps = [
+        Step("c1", 0, (0, 0), True, "text", used_clue_ids=("c1",)),
+        Step("combine:a:b", 3, (0, 1), True, "text", used_clue_ids=("a", "b")),
+        Step("combine:a:b", 3, (0, 2), True, "text", used_clue_ids=("a", "b")),
+        Step("combine:a:b", 3, (0, 3), True, "text", used_clue_ids=("a", "b")),
+    ]
+    q = analyze_attachment_steps(steps)
+    assert q.combination_event_count == 1  # one src/dst pair, however many cells it forced
+    assert q.combination_deduction_count == 3  # but it really did force 3 cells - kept as a separate, informational total
+    assert q.combination_fraction_spread == 0.0  # a single event can't be "spread"
 
 
 def test_score_prefers_smaller_max_reveal_size_regardless_of_difficulty():
@@ -202,8 +224,10 @@ def test_candidate_pool_size_only_expanded_for_hard():
     assert HARD.candidate_pool_size > 1
 
 
-def test_min_combination_steps_only_raised_for_hard():
+def test_min_combination_events_only_raised_for_hard():
     # v8's new "genuinely harder Hard" lever: Medium keeps the implicit
-    # default (>=1 combination moment), Hard demands >=2.
-    assert MEDIUM.min_combination_steps == 1
-    assert HARD.min_combination_steps == 2
+    # default (>=1 combination moment), Hard demands >=2 - genuinely
+    # distinct combination *events*, not individually forced cells (see
+    # combination_event_count vs combination_deduction_count above).
+    assert MEDIUM.min_combination_events == 1
+    assert HARD.min_combination_events == 2

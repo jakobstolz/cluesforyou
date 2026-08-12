@@ -777,9 +777,9 @@ def attach_clues_to_cells(
     # not assumed: this genuinely happens). Re-check against the actual
     # play sequence here, where it matters.
     if difficulty.require_combination:
-        needed = max(1, difficulty.min_combination_steps)
-        if quality.combination_step_count < needed:
-            return None  # this attachment's actual play sequence didn't combine enough times - retry
+        needed = max(1, difficulty.min_combination_events)
+        if quality.combination_event_count < needed:
+            return None  # this attachment's actual play sequence didn't combine enough distinct times - retry
 
     return starter_cell, cell_clue, quality
 

@@ -1,0 +1,134 @@
+import random
+import time
+
+import pytest
+
+from backend.app.config import NUM_CELLS
+from backend.app.core.difficulty import get_difficulty
+from backend.app.core.difficulty_metrics import analyze_attachment_steps
+from backend.app.core.generator import GenerationTimeoutError, _replay_attachment, generate_puzzle
+from backend.app.core.reasoner import propagate_to_fixpoint, run_reasoner
+from backend.app.core.solver_cpsat import cpsat_is_unique
+from backend.app.core.types import Person
+
+NAMES = [
+    "Alice", "Bob", "Carl", "Dana", "Eli", "Fay", "Gus", "Hana", "Ivo", "Jill",
+    "Kian", "Lea", "Milo", "Nia", "Omar", "Pia", "Quinn", "Rex", "Sara", "Theo",
+]  # 20 distinct names, matches NUM_CELLS - a generated grid never repeats a name
+PROFESSIONS = ["Chef", "Cop", "Doctor", "Teacher", "Engineer"]
+POOL = [Person(NAMES[i], PROFESSIONS[i % len(PROFESSIONS)]) for i in range(len(NAMES))]
+
+# Hard's require_combination gate (see difficulty.py/reasoner.py) means
+# generation must prove a clue set is genuinely unsolvable via tiers 0-3
+# alone, not just find *a* solvable set - noticeably slower and far more
+# variable than Easy/Medium (see config.py's GENERATION_TIME_BUDGET_SECONDS
+# comment). Give it a per-puzzle ceiling matching that same budget, and
+# fewer samples than Easy/Medium to keep overall test runtime reasonable.
+DIFFICULTY_SETTINGS = {
+    "easy": {"n": 8, "max_seconds": 3.0},
+    "medium": {"n": 8, "max_seconds": 5.0},
+    "hard": {"n": 2, "max_seconds": 90.0},
+}
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("difficulty", list(DIFFICULTY_SETTINGS))
+def test_generated_puzzles_are_valid(difficulty):
+    rng = random.Random(f"stress-{difficulty}")
+    params = get_difficulty(difficulty)
+    settings = DIFFICULTY_SETTINGS[difficulty]
+
+    for i in range(settings["n"]):
+        t0 = time.monotonic()
+        data = generate_puzzle(POOL, difficulty, rng=rng)
+        elapsed = time.monotonic() - t0
+        assert elapsed < settings["max_seconds"], f"puzzle {i} took {elapsed:.2f}s to generate"
+
+        # Every (name, profession) pair appears exactly once.
+        pairs = [p for row in data.layout for p in row]
+        assert len(set(pairs)) == NUM_CELLS
+
+        clues = list(data.cell_clue.values())
+
+        # CP-SAT ground truth: unique solution matching the hidden solution.
+        assert cpsat_is_unique(clues) is True
+
+        # Human-reasoning engine fully solves it from empty known state
+        # (the attachment is seeded from the starter at generation time,
+        # but the underlying clue set must stand on its own too).
+        trace = run_reasoner(clues, allow_tier4=params.allow_tier4, allow_combination=params.allow_combination)
+        assert trace.solved is True
+        assert trace.known == data.solution
+
+        # Clue count band.
+        assert params.min_clues <= len(clues) <= params.max_clues
+
+        # No trivial "everyone/no one" clues outside Easy.
+        if not params.allow_tier1:
+            assert all(c.tier != 1 for c in clues)
+
+        # Hard puzzles must actually need tier >= 3 reasoning...
+        if params.require_min_tier:
+            assert trace.max_tier >= params.require_min_tier
+        # ...and, when a puzzle happens to need tier 4 specifically (not
+        # mandatory - see generator.py's min_chain_depth comment), the
+        # forced chain behind it must be genuinely deep, not shallow.
+        if params.min_chain_depth and trace.max_tier >= 4:
+            assert trace.max_chain_depth >= params.min_chain_depth
+
+        # Hard must genuinely NEED combination reasoning: solving the exact
+        # same attached clue set with combination turned off must fail (a
+        # real necessity proof, not just "combination happened to fire" -
+        # see generator.py's note on why that distinction matters).
+        if params.require_combination:
+            without_combination = run_reasoner(clues, allow_tier4=params.allow_tier4, allow_combination=False)
+            assert not without_combination.solved
+
+            # That cold-start proof alone isn't enough: real play starts
+            # with the starter's fact for free and unlocks clues
+            # incrementally, which can be enough extra leverage to route
+            # around the combination step entirely even when the abstract
+            # cold-start check says it's required (measured, not assumed -
+            # see generator.py's attach_clues_to_cells note). The actual
+            # attached play sequence must genuinely use it too.
+            replay_steps = _replay_attachment(data.starter_cell, data.solution, data.cell_clue, params)
+            assert replay_steps is not None
+            quality = analyze_attachment_steps(replay_steps)
+            assert quality.first_combination_fraction is not None
+
+        # The starter cell is consistent with the true solution.
+        assert data.solution[data.starter_cell] in (True, False)
+        assert data.starter_cell in data.cell_clue
+
+        # Regression check for the "first clue must be immediately
+        # actionable" bug: the starter's attached clue, given ONLY the
+        # starter fact (no hypothesis testing), must resolve >=1 further
+        # cell entirely on its own.
+        starter_clue = data.cell_clue[data.starter_cell]
+        seeded = {data.starter_cell: data.solution[data.starter_cell]}
+        known_from_starter_clue_alone, _ = propagate_to_fixpoint([starter_clue], seeded)
+        assert len(known_from_starter_clue_alone) > len(seeded)
+
+        # Hard's starter mustn't single-handedly hand over too much for
+        # free (see difficulty.py's max_starter_power / generator.py's
+        # attach_clues_to_cells).
+        if params.max_starter_power is not None:
+            assert len(known_from_starter_clue_alone) - len(seeded) <= params.max_starter_power
+
+        # Every attached clue is distinct and true about the hidden solution.
+        assert len({c.id for c in clues}) == len(clues)
+        for clue in clues:
+            assert clue.evaluate(data.solution) is True
+
+        # Not every cell needs a clue - the rest fall back to fun facts.
+        assert len(data.cell_clue) < NUM_CELLS
+
+
+def test_generation_rejects_bad_difficulty():
+    with pytest.raises(ValueError):
+        generate_puzzle(POOL, "impossible", rng=random.Random(0))
+
+
+def test_generation_rejects_undersized_pool():
+    with pytest.raises(ValueError):
+        generate_puzzle(POOL[: NUM_CELLS - 1], "easy", rng=random.Random(0))

@@ -1,0 +1,495 @@
+/* Mobile-first: base rules target a narrow phone viewport. Wider layouts
+   (the two-column game screen) are opted into via min-width media queries
+   further down, not the other way around. */
+
+:root {
+  --bg: #f4f1ea;
+  --panel: #ffffff;
+  --ink: #24242a;
+  --ink-soft: #6b6b76;
+  --accent: #7a4fd1;
+  --accent-soft: #efe8fb;
+  --border: #ddd7c9;
+  --innocent: #2f9e5c;
+  --innocent-bg: #e4f7ec;
+  --criminal: #c9432f;
+  --criminal-bg: #fbe7e3;
+  --unknown-bg: #f0ede3;
+  --shadow: 0 2px 10px rgba(30, 20, 10, 0.08);
+  --radius: 10px;
+  --tap-min: 44px; /* minimum comfortable touch target */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+.app-header {
+  text-align: center;
+  padding: 1.5rem 1rem 0.75rem;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.7rem;
+  letter-spacing: -0.02em;
+}
+
+.tagline {
+  margin: 0.25rem 0 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 0.75rem 2.5rem;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ---------- Shared card / buttons ---------- */
+
+.card {
+  background: var(--panel);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.25rem;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.card h2 {
+  margin-top: 0;
+}
+
+.field-group {
+  margin-bottom: 1.25rem;
+}
+
+.field-group h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+}
+
+.difficulty-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.difficulty-options label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  min-height: var(--tap-min);
+}
+
+.difficulty-options input[type="radio"] {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: 8px;
+  padding: 0.65rem 1.1rem;
+  min-height: var(--tap-min);
+  background: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.secondary-btn {
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--border);
+}
+
+#generate-btn,
+#manage-roster-btn {
+  width: 100%;
+  margin-top: 0.6rem;
+  font-size: 1rem;
+}
+
+.error-text {
+  color: var(--criminal);
+  font-size: 0.9rem;
+}
+
+.roster-status {
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+/* ---------- Roster management ---------- */
+
+.roster-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.roster-header h2 {
+  margin: 0;
+}
+
+.add-person-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.add-person-form input[type="text"] {
+  width: 100%;
+  padding: 0.6rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.95rem;
+  min-height: var(--tap-min);
+}
+
+.add-person-form input[type="text"]:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.add-person-form button {
+  width: 100%;
+}
+
+.roster-list {
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.roster-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--unknown-bg);
+  border-radius: 8px;
+}
+
+.roster-row-info {
+  font-size: 0.95rem;
+}
+
+.roster-delete-btn {
+  background: var(--criminal-bg);
+  color: var(--criminal);
+  border: 1px solid var(--criminal);
+  padding: 0.3rem 0.6rem;
+  min-height: 36px;
+  min-width: 36px;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+/* ---------- Game toolbar ---------- */
+
+.game-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.badge {
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: capitalize;
+}
+
+.win-banner {
+  background: var(--innocent-bg);
+  color: var(--innocent);
+  border: 1px solid var(--innocent);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+/* ---------- Game layout ----------
+   Everything lives on the grid itself now (no separate feed panel), so
+   this just centers/caps the grid's width on wider screens. */
+
+.game-layout {
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+/* ---------- Grid ---------- */
+
+.grid {
+  display: grid;
+  /* grid-template-columns is set inline by grid.js from the puzzle's
+     actual grid shape - not hardcoded here. */
+  gap: 0.4rem;
+  align-items: start; /* don't stretch short cells to match a tall neighbor's row height */
+}
+
+.cell {
+  min-width: 0;
+  background: var(--unknown-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.25rem;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.cell.locked-innocent {
+  background: var(--innocent-bg);
+  border-color: var(--innocent);
+}
+
+.cell.locked-criminal {
+  background: var(--criminal-bg);
+  border-color: var(--criminal);
+}
+
+.cell-name {
+  font-weight: 700;
+  font-size: 0.78rem;
+  line-height: 1.15;
+  overflow-wrap: break-word;
+}
+
+.cell-profession {
+  font-size: 0.66rem;
+  color: var(--ink-soft);
+  margin-bottom: 0.3rem;
+  overflow-wrap: break-word;
+}
+
+.cell-status-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-top: 0.15rem;
+}
+
+.locked-innocent .cell-status-label {
+  color: var(--innocent);
+}
+
+.locked-criminal .cell-status-label {
+  color: var(--criminal);
+}
+
+.cell-clue-preview {
+  font-size: 0.62rem;
+  line-height: 1.25;
+  margin-top: 0.3rem;
+  color: var(--ink);
+  overflow-wrap: break-word;
+  /* Reserved space, not a scroll-driven preview: every cell (revealed or
+     not) gets the same fixed height up front so cards never resize as
+     the game progresses - sized generously so a full clue sentence fits
+     without clipping in the common case. */
+  min-height: 6.5em;
+}
+
+.cell-clue-preview.dimmed {
+  color: var(--ink-soft);
+  opacity: 0.55;
+}
+
+/* Also used as generic button color variants inside the guess dialog. */
+.guess-innocent {
+  background: var(--innocent-bg);
+  color: var(--innocent);
+  border: 1px solid var(--innocent);
+}
+
+.guess-criminal {
+  background: var(--criminal-bg);
+  color: var(--criminal);
+  border: 1px solid var(--criminal);
+}
+
+@media (min-width: 480px) {
+  .cell {
+    padding: 0.5rem 0.4rem;
+  }
+  .cell-name {
+    font-size: 0.9rem;
+  }
+  .cell-profession {
+    font-size: 0.78rem;
+  }
+  .cell-status-label {
+    font-size: 0.75rem;
+  }
+  .cell-clue-preview {
+    font-size: 0.72rem;
+  }
+}
+
+.cell.shake {
+  animation: shake 0.35s ease;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
+.cell.hint-highlight {
+  box-shadow: 0 0 0 3px var(--accent);
+}
+
+/* ---------- Per-person dialog ---------- */
+/* Opened by tapping a cell: guess prompt while unsolved, or that cell's
+   own attached clue/fun fact once solved - no separate feed needed. */
+
+dialog.cell-dialog {
+  border: none;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.5rem;
+  max-width: 360px;
+  width: calc(100% - 2.5rem);
+  margin: auto;
+}
+
+dialog.cell-dialog::backdrop {
+  background: rgba(20, 15, 10, 0.45);
+}
+
+#dialog-name {
+  margin: 0 0 0.15rem;
+  font-size: 1.3rem;
+}
+
+.dialog-profession {
+  margin: 0 0 1.1rem;
+  color: var(--ink-soft);
+}
+
+.dialog-guess-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.dialog-guess-controls button {
+  width: 100%;
+  font-size: 1rem;
+}
+
+.dialog-reveal {
+  margin-bottom: 1.25rem;
+}
+
+.dialog-reveal .cell-status-label {
+  display: inline-block;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.cell-status-label.status-criminal {
+  color: var(--criminal);
+}
+
+.cell-status-label.status-innocent {
+  color: var(--innocent);
+}
+
+.dialog-reveal p {
+  margin: 0;
+  line-height: 1.4;
+}
+
+#dialog-close-btn {
+  width: 100%;
+}
+
+.hint-message {
+  font-size: 0.85rem;
+  color: var(--accent);
+  margin: 0 0 0.75rem;
+}
+
+/* ---------- Wider screens: roomier setup/roster forms ---------- */
+
+@media (min-width: 480px) {
+  .card {
+    padding: 1.75rem;
+  }
+
+  .add-person-form {
+    flex-direction: row;
+  }
+
+  .add-person-form button {
+    width: auto;
+    flex: 0 0 auto;
+  }
+
+  #generate-btn,
+  #manage-roster-btn {
+    width: auto;
+  }
+}

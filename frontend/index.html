@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CluesForYou</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <h1>CluesForYou</h1>
+    <p class="tagline">Who's innocent? Who's a criminal? Deduce it.</p>
+  </header>
+
+  <main>
+    <section id="setup-section">
+      <div class="card">
+        <h2>New puzzle</h2>
+
+        <p id="roster-status" class="roster-status">Loading roster…</p>
+
+        <div class="field-group">
+          <h3>Difficulty</h3>
+          <div class="difficulty-options" id="difficulty-options">
+            <label><input type="radio" name="difficulty" value="easy" checked /> Easy</label>
+            <label><input type="radio" name="difficulty" value="medium" /> Medium</label>
+            <label><input type="radio" name="difficulty" value="hard" /> Hard</label>
+          </div>
+        </div>
+
+        <p id="setup-error" class="error-text hidden"></p>
+
+        <button type="button" id="generate-btn" disabled>Generate puzzle</button>
+        <button type="button" id="manage-roster-btn" class="secondary-btn">👤 Manage roster</button>
+      </div>
+    </section>
+
+    <section id="roster-section" class="hidden">
+      <div class="card">
+        <div class="roster-header">
+          <h2>Roster</h2>
+          <button type="button" id="roster-back-btn" class="secondary-btn">← Back</button>
+        </div>
+        <p class="roster-status" id="roster-count-line"></p>
+
+        <form id="add-person-form" class="add-person-form">
+          <input type="text" id="add-person-name" placeholder="Name" maxlength="40" required />
+          <input type="text" id="add-person-profession" placeholder="Profession" maxlength="40" required />
+          <button type="submit">Add</button>
+        </form>
+        <p id="roster-error" class="error-text hidden"></p>
+
+        <ul id="roster-list" class="roster-list"></ul>
+      </div>
+    </section>
+
+    <section id="game-section" class="hidden">
+      <div class="game-toolbar">
+        <span id="difficulty-badge" class="badge"></span>
+        <button id="hint-btn" type="button">💡 Hint</button>
+        <button id="new-puzzle-btn" type="button">↺ New puzzle</button>
+      </div>
+      <p class="hint-message hidden" id="hint-message"></p>
+
+      <div id="win-banner" class="win-banner hidden">
+        🎉 Solved it! Every person correctly identified.
+      </div>
+
+      <div class="game-layout">
+        <div id="grid" class="grid" aria-label="Suspect grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="cell-dialog" class="cell-dialog">
+    <h2 id="dialog-name"></h2>
+    <p id="dialog-profession" class="dialog-profession"></p>
+
+    <div id="dialog-guess-controls" class="dialog-guess-controls">
+      <button type="button" id="dialog-guess-innocent" class="guess-innocent">Innocent</button>
+      <button type="button" id="dialog-guess-criminal" class="guess-criminal">Criminal</button>
+    </div>
+    <p id="dialog-wrong-msg" class="error-text hidden">Not quite - try again.</p>
+
+    <div id="dialog-reveal" class="dialog-reveal hidden">
+      <span id="dialog-status-label" class="cell-status-label"></span>
+      <p id="dialog-reveal-text"></p>
+    </div>
+
+    <button type="button" id="dialog-close-btn" class="secondary-btn">Close</button>
+  </dialog>
+
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/state.js"></script>
+  <script src="/static/js/grid.js"></script>
+  <script src="/static/js/dialog.js"></script>
+  <script src="/static/js/roster.js"></script>
+  <script src="/static/js/main.js"></script>
+</body>
+</html>

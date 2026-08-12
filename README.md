@@ -9,8 +9,9 @@ Every puzzle is generated fresh, guaranteed to have exactly one valid
 solution (checked with a CP-SAT solver), and checked to be solvable through
 step-by-step human-style deduction, not just brute-force search.
 
-Built for personal/family use, mobile-first - runs entirely on your own
-machine, no account, no internet connection required once installed.
+Built for personal/family use, mobile-first - runs locally with no
+account or internet connection required, or can be hosted (see "Hosting"
+below) for access from anywhere.
 
 ## Setup
 
@@ -33,9 +34,10 @@ pip install -r requirements.txt
 python cluesforyou.py
 ```
 
-Then open **http://127.0.0.1:8000** in a browser (works well on phones too -
-open it from any device on the same network as the machine running it, or
-see "Future: hosting" below).
+Then open **http://127.0.0.1:8000** in a browser. Works well on phones too:
+the server binds `0.0.0.0`, so from another device on the same WiFi visit
+`http://<this-machine's-LAN-IP>:8000` (or see "Hosting" below for access
+from anywhere, not just the same network).
 
 ## Play
 
@@ -181,12 +183,32 @@ See `backend/app/core/generator.py` (`attach_clues_to_cells`,
 `select_clue_subset`) and `backend/app/core/reasoner.py` for the actual
 algorithm.
 
-### Future: hosting
+### Hosting
 
-Currently local-only by design, but nothing in the frontend assumes that
-(API calls are all relative paths). Two things would need attention before
-hosting for real multi-device/family use: the in-memory `PUZZLES` dict in
-`state.py` and the single `backend/data/roster.json` file both assume one
-process on one machine - fine behind a single `uvicorn` worker, but would
-want a real datastore (or at least file locking) before running multiple
-worker processes.
+Nothing in the frontend assumes local-only (API calls are all relative
+paths), and `cluesforyou.py` already binds `0.0.0.0` and reads its port
+from the `PORT` environment variable, which is all a typical PaaS needs.
+
+**Render.com (free tier)**, via the included `render.yaml`:
+1. Push this repo to GitHub (already done if you're reading this from
+   there).
+2. On Render: New → Blueprint → connect the repo. It reads `render.yaml`
+   and creates the web service automatically (build:
+   `pip install -r requirements.txt`, start: `python cluesforyou.py`).
+3. First deploy takes a few minutes (installing `ortools` isn't
+   instant). You'll get a `https://<something>.onrender.com` URL.
+
+Two things to know about the free tier specifically:
+- **The roster doesn't persist.** Free Render web services have no
+  persistent disk, so `backend/data/roster.json` resets to the default
+  25-person list on every redeploy (and likely on every wake-from-sleep
+  too). Fine for testing the app itself; if you want roster edits to
+  stick around long-term, that needs a real persistence layer (a small
+  managed database, or a paid plan with a disk) - not set up yet.
+- **Cold starts.** Free services spin down after ~15 minutes idle; the
+  next visit takes 30-60s to wake back up.
+
+The single in-memory `PUZZLES` dict in `state.py` is fine as long as
+only one `uvicorn` worker runs (the default, and what `render.yaml`
+uses) - don't add `--workers N` without also moving puzzle state out of
+process memory.

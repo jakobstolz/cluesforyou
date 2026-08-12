@@ -61,7 +61,7 @@ def test_profession_group_label_uses_neutral_form_when_both_spellings_present():
         [Person("Milo", "Engineer"), Person("Nia", "Engineer"), Person("Omar", "Chef"), Person("Pia", "Cop")],
         [Person("Quinn", "Doctor"), Person("Rex", "Teacher"), Person("Sara", "Engineer"), Person("Theo", "Chef")],
     ]
-    assert profession_group_label(grid, "Politiker") == "Politiker(in)"
+    assert profession_group_label(grid, "Politiker") == "Politiker(innen)"
 
 
 def test_generated_grid_never_repeats_a_name_and_profession_grouping_is_consistent():

@@ -7,6 +7,19 @@
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
+  <section id="password-gate" class="gate-section">
+    <div class="card gate-card">
+      <h2>🔒 Gesperrt</h2>
+      <p class="tagline">Finde das Passwort, um weiterzukommen.</p>
+      <form id="password-form">
+        <input type="password" id="password-input" placeholder="Passwort" autocomplete="off" required />
+        <p id="password-error" class="error-text hidden">Falsches Passwort.</p>
+        <button type="submit">Entsperren</button>
+      </form>
+    </div>
+  </section>
+
+  <div id="app-content" class="hidden">
   <header class="app-header">
     <h1>CluesForYou ❤️</h1>
     <p class="tagline">Finde die schlimmen Finger bevor sie dich finden.</p>
@@ -62,6 +75,7 @@
     <section id="game-section" class="hidden">
       <div class="game-toolbar">
         <span id="difficulty-badge" class="badge"></span>
+        <span id="timer-display" class="timer-display">00:00</span>
         <button id="hint-btn" type="button">💡 Hint</button>
         <button id="new-puzzle-btn" type="button">↺ New puzzle</button>
       </div>
@@ -69,7 +83,7 @@
       <p class="hint-message hidden" id="hint-message"></p>
 
       <div id="win-banner" class="win-banner hidden">
-        🎉 Gute Käse!
+        🎉 Gute Käse! <span id="win-time" class="win-time"></span>
       </div>
 
       <div class="game-layout">
@@ -95,6 +109,7 @@
 
     <button type="button" id="dialog-close-btn" class="secondary-btn">Close</button>
   </dialog>
+  </div>
 
   <script src="/static/js/api.js"></script>
   <script src="/static/js/state.js"></script>

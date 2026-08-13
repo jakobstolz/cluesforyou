@@ -57,3 +57,6 @@ class DirectRevealClue(Clue):
                 rng=self._rng,
             )
         return direct_clue_text(identity_text(grid, self.cell), self.is_criminal, rng=self._rng)
+
+    def guaranteed_reveal_cell(self) -> Cell | None:
+        return self.cell

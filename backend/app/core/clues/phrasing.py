@@ -90,10 +90,10 @@ def _group_phrase(group: str, target: int, n: int, rng: random.Random) -> str:
 
 
 def _describe_scope(clue, grid: Grid) -> str:
-    """A phrase like 'in Reihe 2' or 'neben Alice (Chef)' describing a
-    clue's scope, driven by scope_kind/index. Shared between count and
-    parity phrasing (CUSTOM_PAIR is handled separately by each - its
-    phrasing names the two people directly rather than describing a
+    """A phrase like 'in Reihe 2' or 'unter Alice (Chef)s Nachbarn'
+    describing a clue's scope, driven by scope_kind/index. Shared between
+    count and parity phrasing (CUSTOM_PAIR is handled separately by each -
+    its phrasing names the two people directly rather than describing a
     group). Doesn't itself pick between template variants, so it needs
     no rng."""
     kind = clue.scope_kind
@@ -108,13 +108,16 @@ def _describe_scope(clue, grid: Grid) -> str:
     if kind == ScopeKind.GLOBAL:
         return "im gesamten Raster"
     if kind == ScopeKind.NEIGHBOR:
-        return f"neben {identity_text(grid, clue.index)}"
+        # Unreachable today (count_clue_text/parity_clue_text both
+        # special-case NEIGHBOR before ever reaching this fallback) -
+        # kept correct anyway in case a future caller hits it directly.
+        return f"unter {identity_text(grid, clue.index)}s Nachbarn"
     if kind == ScopeKind.ROW_NEIGHBOR:
         row, anchor = clue.index
-        return f"in Reihe {row + 1} neben {identity_text(grid, anchor)}"
+        return f"in Reihe {row + 1} unter {identity_text(grid, anchor)}s Nachbarn"
     if kind == ScopeKind.COL_NEIGHBOR:
         col, anchor = clue.index
-        return f"in Spalte {col + 1} neben {identity_text(grid, anchor)}"
+        return f"in Spalte {col + 1} unter {identity_text(grid, anchor)}s Nachbarn"
     if kind == ScopeKind.CORNER:
         return "in einer Ecke"
     if kind == ScopeKind.EDGE:
@@ -165,6 +168,49 @@ def _neighbor_count_phrase(identity: str, target: int, n: int, rng: random.Rando
     return template.format(identity=identity, target=target, n=n)
 
 
+_DIRECT_COUNT_GENERAL_TEMPLATES = {
+    True: [
+        "{identity} ist eine(r) von {n} Kriminellen {scope}.",
+        "{identity} zählt zu den {n} Kriminellen {scope}.",
+    ],
+    False: [
+        "{identity} ist unschuldig - es gibt trotzdem {n} Kriminelle {scope}.",
+        "{identity} gehört nicht dazu, aber es gibt {n} Kriminelle {scope}.",
+    ],
+}
+
+_DIRECT_COUNT_NEIGHBOR_TEMPLATES = {
+    True: [
+        "{identity} ist eine(r) von {neighbor}s {n} kriminellen Nachbarn.",
+        "{identity} zählt zu {neighbor}s {n} kriminellen Nachbarn.",
+    ],
+    False: [
+        "{identity} ist unschuldig, obwohl {neighbor} insgesamt {n} kriminelle Nachbarn hat.",
+        "{identity} gehört zu {neighbor}s unschuldigen Nachbarn - {neighbor} hat trotzdem {n} kriminelle Nachbarn.",
+    ],
+}
+
+
+def direct_count_clue_text(clue, grid: Grid, rng: random.Random | None = None) -> str:
+    """Phrasing for DirectCountClue (counts.py) - a genuine direct-reveal
+    + count combo, not just flavor text on a plain reveal (contrast with
+    neighbor_direct_clue_text above). Branches on scope_kind exactly like
+    count_clue_text does, for the same reason: NEIGHBOR reads more
+    naturally as a possessive ("Y's N criminal neighbors") than the
+    generic "{n} Kriminellen {scope}" pattern would."""
+    rng = rng if rng is not None else random
+    identity = identity_text(grid, clue.cell)
+    if clue.scope_kind == ScopeKind.NEIGHBOR:
+        neighbor = identity_text(grid, clue.index)
+        template = rng.choice(_DIRECT_COUNT_NEIGHBOR_TEMPLATES[clue.is_criminal])
+        text = template.format(identity=identity, neighbor=neighbor, n=clue.target)
+    else:
+        scope = _describe_scope(clue, grid)
+        template = rng.choice(_DIRECT_COUNT_GENERAL_TEMPLATES[clue.is_criminal])
+        text = template.format(identity=identity, n=clue.target, scope=scope)
+    return text[0].upper() + text[1:]
+
+
 def count_clue_text(clue, grid: Grid, rng: random.Random | None = None) -> str:
     rng = rng if rng is not None else random
     if clue.scope_kind == ScopeKind.CUSTOM_PAIR:
@@ -175,11 +221,12 @@ def count_clue_text(clue, grid: Grid, rng: random.Random | None = None) -> str:
 
     # Plain NEIGHBOR scope gets its own "X's neighbors" phrasing instead
     # of the generic "{group}" templates below - reads more naturally as
-    # a possessive noun phrase than "neben X" ever did. Intersection
-    # scopes (ROW_NEIGHBOR/COL_NEIGHBOR) keep the generic "neben"
-    # phrasing via _describe_scope, since they're already a compound
-    # description ("in row 2 neighboring X") that doesn't reduce to a
-    # simple possessive as cleanly.
+    # a possessive noun phrase. Intersection scopes (ROW_NEIGHBOR/
+    # COL_NEIGHBOR) go through the generic path via _describe_scope
+    # instead, since they're already a compound description ("in row 2,
+    # among X's neighbors") that doesn't reduce to a simple possessive as
+    # cleanly - but _describe_scope itself uses "Nachbarn" phrasing too,
+    # not "neben".
     if clue.scope_kind == ScopeKind.NEIGHBOR:
         identity = identity_text(grid, clue.index)
         return _neighbor_count_phrase(identity, clue.target, len(clue.scope_list), rng)
@@ -242,8 +289,8 @@ def group_existence_text(clue, grid: Grid, rng: random.Random | None = None) -> 
 
 COMPARE_TEMPLATES = [
     # No hardcoded article before {greater}/{lesser}: the label itself
-    # already carries whatever article it needs ("den Fußballer(innen)",
-    # "den Personen neben X") or needs none ("Reihe 1") - same convention
+    # already carries whatever article it needs ("den Fußballer(innen)")
+    # or needs none ("Reihe 1", "Xs Nachbarn") - same convention
     # EQ_COMPARE_TEMPLATES's "in {a}" already relies on below. Templating
     # a "den" here too used to double up into "unter den den X" for any
     # label that already had its own "den" - a real, confusing bug fixed

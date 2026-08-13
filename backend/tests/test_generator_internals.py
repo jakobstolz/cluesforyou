@@ -5,6 +5,7 @@ from backend.app.core.clues import (
     AtLeastOneCriminalClue,
     CompareCountClue,
     CountConstraintClue,
+    DirectCountClue,
     DirectRevealClue,
 )
 from backend.app.core.difficulty import get_difficulty
@@ -15,6 +16,8 @@ from backend.app.core.generator import (
     _clue_family,
     _growth_candidate_score,
     _pick_growth_shortlist,
+    _sort_key,
+    _starter_candidate_cells,
     _stratified_sample,
     attach_clues_to_cells,
 )
@@ -234,6 +237,52 @@ def test_best_growth_candidate_prefers_dependency_over_direct():
         [dependency_candidate, direct_only_candidate], chosen, difficulty, cache, random.Random(0)
     )
     assert best is dependency_candidate
+
+
+# ---------- _sort_key / _starter_candidate_cells DirectCountClue bias (v10) ----------
+
+
+def test_sort_key_prefers_direct_count_over_plain_direct_reveal():
+    # Both are tier 0 (fire unconditionally at round 0 regardless of
+    # starter choice - see _sort_key's docstring), so whichever sorts
+    # first is what wins the starter/clue-#2 attachment slots. The
+    # info-richer DirectCountClue should win that race, not lose it to a
+    # plain reveal just because its group scope is bigger.
+    g = grid()
+    plain = DirectRevealClue((1, 1), True, g)
+    scope = row_cells(0)
+    combo = DirectCountClue(scope[0], True, scope, ScopeKind.ROW, target=1, grid=g, index=0)
+    ordered = sorted([plain, combo], key=_sort_key)
+    assert ordered[0] is combo
+
+
+def test_sort_key_still_prefers_any_tier0_over_higher_tier():
+    g = grid()
+    plain = DirectRevealClue((1, 1), True, g)
+    count_clue = CountConstraintClue(row_cells(0), ScopeKind.ROW, target=2, grid=g, index=0)
+    ordered = sorted([count_clue, plain], key=_sort_key)
+    assert ordered[0] is plain
+
+
+def test_starter_candidate_cells_prefers_guaranteed_reveal_cell():
+    # A DirectCountClue's own `.scope` is a whole row (4 cells) - too big
+    # for the old len(scope) <= 3 heuristic to ever pick up - but its
+    # guaranteed_reveal_cell() is exactly ONE cell, which must still win
+    # over a small-scope (2-cell) clue that isn't guaranteed to reveal
+    # anything without prior knowledge.
+    g = grid()
+    scope = row_cells(0)
+    combo = DirectCountClue(scope[0], True, scope, ScopeKind.ROW, target=1, grid=g, index=0)
+    small_scope_clue = CountConstraintClue([(4, 0), (4, 1)], ScopeKind.CUSTOM_PAIR, target=1, grid=g)
+    result = _starter_candidate_cells([combo, small_scope_clue], random.Random(0))
+    assert result == [scope[0]]
+
+
+def test_starter_candidate_cells_falls_back_to_small_scope_when_nothing_guaranteed():
+    g = grid()
+    small_scope_clue = CountConstraintClue([(4, 0), (4, 1)], ScopeKind.CUSTOM_PAIR, target=1, grid=g)
+    result = _starter_candidate_cells([small_scope_clue], random.Random(0))
+    assert set(result) == {(4, 0), (4, 1)}
 
 
 # ---------- attach_clues_to_cells multi-starter quality search (v9) ----------

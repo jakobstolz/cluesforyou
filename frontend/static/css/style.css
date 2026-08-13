@@ -74,6 +74,47 @@ main {
   margin-top: 0;
 }
 
+/* ---------- Password gate ---------- */
+
+.gate-section {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.gate-card {
+  text-align: center;
+  width: 100%;
+}
+
+.gate-card .tagline {
+  color: var(--ink-soft);
+  margin: 0.25rem 0 1.25rem;
+}
+
+#password-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+#password-input {
+  width: 100%;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 1rem;
+  min-height: var(--tap-min);
+  text-align: center;
+}
+
+#password-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 .field-group {
   margin-bottom: 1.25rem;
 }
@@ -248,6 +289,12 @@ button:active:not(:disabled) {
   text-transform: capitalize;
 }
 
+.timer-display {
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
 .win-banner {
   background: var(--innocent-bg);
   color: var(--innocent);
@@ -257,6 +304,11 @@ button:active:not(:disabled) {
   font-weight: 600;
   margin-bottom: 1rem;
   text-align: center;
+}
+
+.win-time {
+  font-family: monospace;
+  font-weight: 400;
 }
 
 /* ---------- Game layout ----------

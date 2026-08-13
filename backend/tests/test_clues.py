@@ -7,6 +7,7 @@ from backend.app.core.clues import (
     CompareCountClue,
     ContradictionError,
     CountConstraintClue,
+    DirectCountClue,
     DirectRevealClue,
 )
 from backend.app.core.grid import random_grid_layout
@@ -282,6 +283,95 @@ def test_compare_cpsat_agreement(grid):
     sol_mismatch = make_solution(row1[:2])
     assert cpsat_agrees(clue, sol_match) == clue.evaluate(sol_match) == True
     assert cpsat_agrees(clue, sol_mismatch) == clue.evaluate(sol_mismatch) == False
+
+
+# ---------- DirectCountClue ----------
+
+
+def test_direct_count_tier_is_zero_regardless_of_target(grid):
+    scope = row_cells(0)
+    cell = scope[0]
+    # target == 1 would make a plain CountConstraintClue tier 2 (not extreme) -
+    # DirectCountClue must still be tier 0, the direct half always fires.
+    clue = DirectCountClue(cell, True, scope, ScopeKind.ROW, target=1, grid=grid, index=0)
+    assert clue.tier == 0
+
+
+def test_direct_count_rejects_cell_outside_group():
+    scope = row_cells(0)
+    with pytest.raises(ValueError):
+        DirectCountClue((4, 0), True, scope, ScopeKind.ROW, target=1, grid=None, index=0)
+
+
+def test_direct_count_evaluate_requires_both_halves(grid):
+    scope = row_cells(0)
+    cell = scope[0]
+    clue = DirectCountClue(cell, True, scope, ScopeKind.ROW, target=1, grid=grid, index=0)
+    assert clue.evaluate(make_solution([cell])) is True  # cell criminal, exactly 1 in scope - both halves hold
+    assert clue.evaluate(make_solution([])) is False  # cell's own fact violated
+    assert clue.evaluate(make_solution(scope[:2])) is False  # cell's fact holds, but group count is wrong
+
+
+def test_direct_count_propagate_reveals_cell_unconditionally(grid):
+    scope = row_cells(1)
+    cell = scope[0]
+    clue = DirectCountClue(cell, False, scope, ScopeKind.ROW, target=2, grid=grid, index=1)
+    # Zero prior knowledge - the direct half still fires, same as DirectRevealClue.
+    assert clue.propagate({})[cell] is False
+
+
+def test_direct_count_propagate_also_tightens_the_group(grid):
+    scope = row_cells(2)
+    cell = scope[0]
+    # Group of 4, target=2, cell is criminal (counts toward target) - once
+    # one more criminal is independently known, the rest must be innocent.
+    clue = DirectCountClue(cell, True, scope, ScopeKind.ROW, target=2, grid=grid, index=2)
+    known = {scope[1]: True}
+    facts = clue.propagate(known)
+    assert facts[cell] is True  # direct half
+    assert facts[scope[2]] is False and facts[scope[3]] is False  # count half, tightened
+
+
+def test_direct_count_propagate_contradiction_on_mismatched_cell(grid):
+    scope = row_cells(3)
+    cell = scope[0]
+    clue = DirectCountClue(cell, True, scope, ScopeKind.ROW, target=1, grid=grid, index=3)
+    with pytest.raises(ContradictionError):
+        clue.propagate({cell: False})
+
+
+def test_direct_count_guaranteed_reveal_cell(grid):
+    scope = row_cells(0)
+    cell = scope[0]
+    clue = DirectCountClue(cell, True, scope, ScopeKind.ROW, target=1, grid=grid, index=0)
+    assert clue.guaranteed_reveal_cell() == cell
+
+
+def test_direct_count_cpsat_enforces_both_halves(grid):
+    scope = row_cells(0)
+    cell = scope[0]
+    clue = DirectCountClue(cell, True, scope, ScopeKind.ROW, target=1, grid=grid, index=0)
+    sol_match = make_solution([cell])  # cell criminal, exactly 1 in scope
+    sol_wrong_cell = make_solution([scope[1]])  # group count right (1), but wrong member
+    assert cpsat_agrees(clue, sol_match) == clue.evaluate(sol_match) == True
+    assert cpsat_agrees(clue, sol_wrong_cell) == clue.evaluate(sol_wrong_cell) == False
+
+
+def test_direct_count_text_mentions_identity_and_count(grid):
+    scope = row_cells(0)
+    cell = scope[0]
+    clue = DirectCountClue(cell, True, scope, ScopeKind.ROW, target=2, grid=grid, index=0)
+    assert grid[cell[0]][cell[1]].name in clue.text
+    assert "2" in clue.text
+
+
+def test_direct_count_neighbor_scope_uses_nachbarn_phrasing(grid):
+    center = (2, 1)
+    scope = all_neighbor_cells(center)
+    cell = scope[0]
+    clue = DirectCountClue(cell, True, scope, ScopeKind.NEIGHBOR, target=2, grid=grid, index=center)
+    assert "Nachbarn" in clue.text
+    assert grid[center[0]][center[1]].name in clue.text
 
 
 def test_clue_ids_are_unique(grid):

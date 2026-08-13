@@ -113,5 +113,16 @@ class Clue(ABC):
     def render_text(self, grid: Grid) -> str:
         """Player-facing natural-language rendering of this clue."""
 
+    def guaranteed_reveal_cell(self) -> Cell | None:
+        """The one cell this clue is guaranteed to reveal outright given
+        ZERO prior knowledge (a tier-0 fact, unconditional) - if any. None
+        for clues that need some existing knowledge before they can derive
+        anything (the common case). Used by generator.py to bias starter
+        selection toward clues that pay off immediately regardless of
+        their overall `scope` size - matters for a clue like
+        DirectCountClue whose `scope` is a whole group but which still
+        only ever reveals ONE specific cell unconditionally."""
+        return None
+
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"<{type(self).__name__} {self.id} tier={self.tier} {self.text!r}>"

@@ -11,7 +11,7 @@ from __future__ import annotations
 import random
 
 from backend.app.core.clues.base import Clue, ContradictionError
-from backend.app.core.clues.phrasing import count_clue_text
+from backend.app.core.clues.phrasing import count_clue_text, direct_count_clue_text
 from backend.app.core.types import Cell, Grid, KnownState, ScopeKind, Solution
 
 
@@ -60,3 +60,75 @@ class CountConstraintClue(Clue):
 
     def render_text(self, grid: Grid) -> str:
         return count_clue_text(self, grid, rng=self._rng)
+
+
+class DirectCountClue(CountConstraintClue):
+    """A CountConstraintClue that ALSO directly reveals one specific member
+    of its own scope - "X is one of N criminals {group}" (or the
+    neighbor-framed variant, "X is one of Y's N criminal neighbors").
+    Genuinely combines two kinds of information in one clue, unlike the
+    purely-flavor-text neighbor-framed DirectRevealClue (see direct.py):
+    the immediate tier-0 fact about `cell`, AND the group's exact count -
+    which stays valuable for later combination reasoning even after
+    `cell` itself is known, exactly like any other CountConstraintClue
+    (subclassing it, rather than DirectRevealClue, is what makes that
+    "for free" - every isinstance(c, CountConstraintClue) check elsewhere,
+    e.g. reasoner.py's combination logic, picks this up automatically).
+    A great starter/early candidate: gives the player one deduction for
+    free immediately while still setting up a future combination
+    deduction with the rest of the group - see generator.py's
+    _starter_candidate_cells/_sort_key for how generation biases toward
+    actually landing it in the first couple of attached clues."""
+
+    def __init__(
+        self,
+        cell: Cell,
+        is_criminal: bool,
+        group_scope: list[Cell],
+        scope_kind: ScopeKind,
+        target: int,
+        grid: Grid,
+        index=None,
+        rng: random.Random | None = None,
+    ):
+        if cell not in group_scope:
+            raise ValueError("cell must be a member of group_scope")
+        self.cell = cell
+        self.is_criminal = is_criminal
+        super().__init__(group_scope, scope_kind, target, grid, index=index, rng=rng)
+        # Overrides the tier CountConstraintClue.__init__ just computed
+        # (1 or 2, from the group's target alone) - the direct half always
+        # fires unconditionally, regardless of what's known, same as
+        # DirectRevealClue.
+        self.tier = 0
+
+    def evaluate(self, solution: Solution) -> bool:
+        return solution[self.cell] == self.is_criminal and super().evaluate(solution)
+
+    def add_to_model(self, model, cell_vars) -> None:
+        # Both halves must be enforced, or CP-SAT's uniqueness check would
+        # silently under-constrain the model - the sum-equals-target
+        # constraint alone doesn't pin `cell` specifically.
+        model.Add(cell_vars[self.cell] == int(self.is_criminal))
+        super().add_to_model(model, cell_vars)
+
+    def propagate(self, known: KnownState) -> KnownState:
+        if self.cell in known:
+            if known[self.cell] != self.is_criminal:
+                raise ContradictionError(self.id)
+            direct_facts: KnownState = {}
+        else:
+            direct_facts = {self.cell: self.is_criminal}
+        # Seed `cell`'s fact into the group-tightening check even if it
+        # wasn't already in `known` - so the rest of the group can tighten
+        # in the SAME propagate() call the direct reveal happens in, not a
+        # round later.
+        seeded = dict(known)
+        seeded[self.cell] = self.is_criminal
+        return {**direct_facts, **super().propagate(seeded)}
+
+    def guaranteed_reveal_cell(self) -> Cell | None:
+        return self.cell
+
+    def render_text(self, grid: Grid) -> str:
+        return direct_count_clue_text(self, grid, rng=self._rng)

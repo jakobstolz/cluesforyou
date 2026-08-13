@@ -6,7 +6,77 @@ function showSection(id) {
   }
 }
 
+// Solve timer: starts when a puzzle is generated, freezes on win. Not part
+// of `state` - it's a runtime handle (setInterval id), not game data.
+let timerIntervalId = null;
+
+function formatElapsed(ms) {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function tickTimerDisplay() {
+  document.getElementById("timer-display").textContent = formatElapsed(Date.now() - state.startTime);
+}
+
+function stopTimer() {
+  if (timerIntervalId !== null) {
+    clearInterval(timerIntervalId);
+    timerIntervalId = null;
+  }
+}
+
+function finishTimer() {
+  // Freezes the toolbar display and mirrors the final time into the win
+  // banner - called from every path that can trigger a win (a guess or a
+  // hint completing the puzzle).
+  stopTimer();
+  const elapsed = formatElapsed(Date.now() - state.startTime);
+  document.getElementById("timer-display").textContent = elapsed;
+  document.getElementById("win-time").textContent = `(${elapsed})`;
+}
+
+// Password gate: not real security (the API stays open regardless) - just
+// a fun "find the password" barrier before the actual app content shows,
+// per the site being "shipped" to friends/family as a puzzle in itself.
+const UNLOCK_STORAGE_KEY = "cfy_unlocked";
+const SITE_PASSWORD = "1234";
+
 document.addEventListener("DOMContentLoaded", () => {
+  initPasswordGate();
+});
+
+function initPasswordGate() {
+  if (localStorage.getItem(UNLOCK_STORAGE_KEY) === "1") {
+    unlockApp();
+    return;
+  }
+  document.getElementById("password-form").addEventListener("submit", onPasswordSubmit);
+  document.getElementById("password-input").focus();
+}
+
+function onPasswordSubmit(event) {
+  event.preventDefault();
+  const input = document.getElementById("password-input");
+  if (input.value === SITE_PASSWORD) {
+    localStorage.setItem(UNLOCK_STORAGE_KEY, "1");
+    unlockApp();
+  } else {
+    document.getElementById("password-error").classList.remove("hidden");
+    input.value = "";
+    input.focus();
+  }
+}
+
+function unlockApp() {
+  document.getElementById("password-gate").classList.add("hidden");
+  document.getElementById("app-content").classList.remove("hidden");
+  initApp();
+}
+
+function initApp() {
   initRosterUI();
   initDialogUI();
   refreshRosterStatus();
@@ -16,7 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("roster-back-btn").addEventListener("click", onRosterBackClick);
   document.getElementById("hint-btn").addEventListener("click", onHintClick);
   document.getElementById("new-puzzle-btn").addEventListener("click", onNewPuzzleClick);
-});
+}
 
 async function onManageRosterClick() {
   showSection("roster-section");
@@ -89,7 +159,13 @@ function startGame(data) {
   hintMsg.textContent = "";
   hintMsg.classList.add("hidden");
   document.getElementById("win-banner").classList.add("hidden");
+  document.getElementById("win-time").textContent = "";
   showSection("game-section");
+
+  state.startTime = Date.now();
+  stopTimer(); // in case a previous game's interval is somehow still running
+  tickTimerDisplay();
+  timerIntervalId = setInterval(tickTimerDisplay, 1000);
 
   renderGrid();
 }
@@ -111,6 +187,7 @@ async function submitGuess(row, col, guess) {
     refreshDialogIfOpen(row, col);
 
     if (result.solved) {
+      finishTimer();
       document.getElementById("win-banner").classList.remove("hidden");
       closeCellDialog();
     }
@@ -140,6 +217,7 @@ async function onHintClick() {
     msgEl.textContent = `Hint: ${result.reason}`;
 
     if (result.solved) {
+      finishTimer();
       document.getElementById("win-banner").classList.remove("hidden");
     }
   } catch (err) {
@@ -148,6 +226,7 @@ async function onHintClick() {
 }
 
 async function onNewPuzzleClick() {
+  stopTimer();
   resetState();
   showSection("setup-section");
   await refreshRosterStatus();

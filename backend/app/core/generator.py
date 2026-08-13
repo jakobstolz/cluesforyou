@@ -37,7 +37,7 @@ from backend.app.config import (
 )
 from backend.app.core.clues.base import Clue, Step
 from backend.app.core.clues.compare import CompareCountClue
-from backend.app.core.clues.counts import CountConstraintClue
+from backend.app.core.clues.counts import CountConstraintClue, DirectCountClue
 from backend.app.core.clues.direct import DirectRevealClue
 from backend.app.core.clues.existence import AtLeastOneCriminalClue
 from backend.app.core.clues.parity import ParityConstraintClue
@@ -76,6 +76,7 @@ from backend.app.core.types import (
 )
 
 DIRECT_CLUE_SAMPLE_SIZE = 3
+DIRECT_COUNT_SAMPLE_SIZE = 4
 CUSTOM_PAIR_SAMPLE_SIZE = 20
 COMPARE_SAMPLE_SIZE = 20
 NEIGHBOR_COMPARE_SAMPLE_SIZE = 15
@@ -195,6 +196,53 @@ def _intersection_scopes(rng: random.Random) -> list[ScopeDescriptor]:
     return scopes[:ROW_COL_NEIGHBOR_SAMPLE_SIZE]
 
 
+def _build_direct_count_candidates(
+    layout: Grid,
+    solution: Solution,
+    professions: list[str],
+    difficulty: DifficultyParams,
+    rng: random.Random,
+) -> list[Clue]:
+    """DirectCountClue candidates (counts.py) - "X is one of N criminals
+    {group}"/"X is one of Y's N criminal neighbors": a genuine direct-
+    reveal + count combo, not just flavor text on a plain reveal (contrast
+    with the neighbor-framed DirectRevealClue seeded in build_candidate_pool
+    above). Reuses the same ROW/COL/PROFESSION/NEIGHBOR scope-building as
+    everywhere else in this file. Generated at every difficulty - the
+    direct half is always informative regardless of tier-1 gating, and the
+    count half only interacts with combination reasoning when this
+    difficulty already allows it."""
+    scopes: list[ScopeDescriptor] = []
+    for r in range(GRID_ROWS):
+        scopes.append((row_cells(r), ScopeKind.ROW, r))
+    for c in range(GRID_COLS):
+        scopes.append((col_cells(c), ScopeKind.COL, c))
+    for prof in professions:
+        scopes.append((profession_group_cells(layout, prof), ScopeKind.PROFESSION, prof))
+    if difficulty.allow_neighbor:
+        for cell in ALL_CELLS:
+            neighbors = all_neighbor_cells(cell)
+            if neighbors:
+                scopes.append((neighbors, ScopeKind.NEIGHBOR, cell))
+    rng.shuffle(scopes)
+
+    clues: list[Clue] = []
+    for scope, kind, index in scopes:
+        if len(clues) >= DIRECT_COUNT_SAMPLE_SIZE:
+            break
+        if len(scope) < 2:
+            continue
+        target = _group_count(solution, scope)
+        # Same tier-1-degenerate guard _make_count_clue_if_allowed uses:
+        # the direct half is fine either way, but a target of 0/full would
+        # make the count half a pure giveaway.
+        if target in (0, len(scope)) and not difficulty.allow_tier1:
+            continue
+        cell = rng.choice(scope)
+        clues.append(DirectCountClue(cell, solution[cell], scope, kind, target, layout, index=index, rng=rng))
+    return clues
+
+
 def build_candidate_pool(
     layout: Grid,
     solution: Solution,
@@ -222,6 +270,8 @@ def build_candidate_pool(
         if neighbors:
             anchor = rng.choice(neighbors)
             pool.append(DirectRevealClue(cell, solution[cell], layout, neighbor_context=anchor, rng=rng))
+
+    pool.extend(_build_direct_count_candidates(layout, solution, professions, difficulty, rng))
 
     def add_count(scope, kind, index=None):
         clue = _make_count_clue_if_allowed(scope, kind, solution, layout, difficulty, index=index, rng=rng)
@@ -422,8 +472,8 @@ def _build_neighbor_compare_candidates(
         sum_a = _group_count(solution, scope_a)
         sum_b = _group_count(solution, scope_b)
         relation = "EQ" if sum_a == sum_b else ("GT" if sum_a > sum_b else "LT")
-        label_a = f"den Personen neben {identity_text(layout, a)}"
-        label_b = f"den Personen neben {identity_text(layout, b)}"
+        label_a = f"{identity_text(layout, a)}s Nachbarn"
+        label_b = f"{identity_text(layout, b)}s Nachbarn"
         candidates.append(CompareCountClue(scope_a, scope_b, relation, label_a, label_b, layout, rng=rng))
 
     return candidates
@@ -487,8 +537,16 @@ def _find_combination_seed_pair(pool: list[Clue], rng: random.Random) -> tuple[C
     region - so leaving this to pure chance makes `require_combination`
     very expensive to satisfy by retrying alone. Seeding with a proven,
     tight pair up front makes combination-necessity vastly more likely to
-    actually stick through growth and pruning."""
-    count_clues = [c for c in pool if isinstance(c, CountConstraintClue)]
+    actually stick through growth and pruning. DirectCountClue excluded
+    deliberately (v10, measured): it's a genuine CountConstraintClue and
+    still fine to combine with LATER during regular growth, but seeding
+    the *initial guaranteed pair* with one - which already carries its own
+    unconditional direct-reveal fact - was measured to make the
+    tiers-0-3-without-combination check succeed too easily on its own,
+    undermining the very guarantee this function exists to provide (Hard's
+    success rate dropped from 15/15 to 9/15 on a fixed 15-seed sweep
+    before this exclusion)."""
+    count_clues = [c for c in pool if isinstance(c, CountConstraintClue) and not isinstance(c, DirectCountClue)]
     candidates: list[tuple[int, Clue, Clue]] = []
     for a, b in itertools.combinations(count_clues, 2):
         scope_a, scope_b = set(a.scope_list), set(b.scope_list)
@@ -633,6 +691,22 @@ def select_clue_subset(
             chosen = list(seed_pair)
             remaining = [c for c in remaining if c not in chosen]
 
+    # v10: at most ONE DirectCountClue ever enters `chosen`, seeded here
+    # rather than left as a general growth-pool candidate. Its
+    # unconditional direct-reveal fact was measured to undermine
+    # require_combination's necessity proof more the more of them were
+    # loose in the pool for growth to freely pick up (Hard's success rate
+    # on a fixed 15-seed sweep swung as low as 60% depending on how many
+    # were available at once). Capping exposure to exactly one, chosen
+    # up front rather than competed for during growth, is the version of
+    # "restrict it to a single, controlled role" that actually addresses
+    # the mechanism - growth's shortlist-scoring never even sees a second
+    # one, so it can't accumulate.
+    direct_count_candidates = [c for c in remaining if isinstance(c, DirectCountClue)]
+    if direct_count_candidates:
+        chosen.append(rng.choice(direct_count_candidates))
+    remaining = [c for c in remaining if not isinstance(c, DirectCountClue)]
+
     chosen_cells: set[Cell] = set().union(*(c.scope for c in chosen)) if chosen else set()
 
     # Grow using tiers 0-3 only - always cheap, same as Easy/Medium. Once
@@ -762,20 +836,45 @@ def select_clue_subset(
 
 
 def _sort_key(clue: Clue) -> tuple[int, int, int]:
-    is_direct = 0 if isinstance(clue, DirectRevealClue) else 1
-    return (is_direct, clue.tier, len(clue.scope))
+    """Sort key controlling iteration order in _attach_with_starter's
+    reasoner pass - lower sorts first. Matters because EVERY tier-0 clue
+    (guaranteed_reveal_cell() is not None) fires unconditionally on round
+    0 of propagate_to_fixpoint regardless of which cell was chosen as
+    starter (its propagate() doesn't consult `known` except to check
+    "already known") - so which one becomes trace.steps[0] (-> the
+    starter's attached clue) and which becomes the very next one (-> clue
+    #2, attached to whatever cell clue #1 revealed) is purely iteration
+    order among tier-0 clues. DirectCountClue (info-richest tier-0 clue -
+    an immediate reveal AND a group count useful for later combination,
+    see its docstring) is given top priority so it's actually likely to
+    land in one of those first slots, not crowded out by plain
+    DirectRevealClues (which would otherwise always win on the old
+    smaller-scope-sorts-first tiebreak, since a DirectCountClue's scope is
+    a whole group, not just its own cell)."""
+    if isinstance(clue, DirectCountClue):
+        priority = 0
+    elif clue.guaranteed_reveal_cell() is not None:
+        priority = 1
+    else:
+        priority = 2
+    return (priority, clue.tier, len(clue.scope))
 
 
 def _starter_candidate_cells(chosen: list[Clue], rng: random.Random) -> list[Cell]:
-    """Shuffled starter-cell candidates, biased toward cells covered by at
-    least one small-scope clue (<=3 cells) - much more likely to fire
-    immediately from just the starter fact alone now that tier-1
-    bootstrapping clues are banned outside Easy. Falls back to every cell
-    if no such small-scope cell exists. Used both for the single-starter
+    """Shuffled starter-cell candidates, biased toward a cell some clue is
+    GUARANTEED to reveal outright (see Clue.guaranteed_reveal_cell) -
+    covers both DirectRevealClue and DirectCountClue regardless of the
+    latter's (possibly large) group scope, unlike a scope-size check.
+    Falls back to any small-scope clue (<=3 cells, likely to resolve
+    almost as fast) and then every cell. Used both for the single-starter
     path (take the first) and the multi-starter quality search below (take
     up to `difficulty.starter_candidates`)."""
-    small_scope_cells = sorted({c for clue in chosen if len(clue.scope) <= 3 for c in clue.scope})
-    pool = list(small_scope_cells) if small_scope_cells else list(ALL_CELLS)
+    guaranteed_cells = sorted({cell for clue in chosen if (cell := clue.guaranteed_reveal_cell()) is not None})
+    if guaranteed_cells:
+        pool = guaranteed_cells
+    else:
+        small_scope_cells = sorted({c for clue in chosen if len(clue.scope) <= 3 for c in clue.scope})
+        pool = list(small_scope_cells) if small_scope_cells else list(ALL_CELLS)
     rng.shuffle(pool)
     return pool
 

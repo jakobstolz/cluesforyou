@@ -271,7 +271,15 @@ def build_candidate_pool(
             anchor = rng.choice(neighbors)
             pool.append(DirectRevealClue(cell, solution[cell], layout, neighbor_context=anchor, rng=rng))
 
-    pool.extend(_build_direct_count_candidates(layout, solution, professions, difficulty, rng))
+    # v12: DirectCountClue is now excluded entirely when require_combination
+    # is set (Medium/Hard) - measured (see project memory / batch_instrument
+    # sweeps) to still meaningfully undermine the necessity proof even
+    # capped to at most one per puzzle (v10's fix), costing real reliability
+    # AND speed (Hard: 64%->76% success, median 7.73s->4.84s on a fixed
+    # sweep, purely from this exclusion). Easy has no such requirement, so
+    # it keeps the clue unrestricted - this was never a problem there.
+    if not difficulty.require_combination:
+        pool.extend(_build_direct_count_candidates(layout, solution, professions, difficulty, rng))
 
     def add_count(scope, kind, index=None):
         clue = _make_count_clue_if_allowed(scope, kind, solution, layout, difficulty, index=index, rng=rng)

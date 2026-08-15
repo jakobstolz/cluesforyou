@@ -101,7 +101,20 @@ HARD = DifficultyParams(
     require_combination=True,
     min_combination_events=2,  # the *new* bar over Medium: at least two genuine combination moments, not just one
     max_starter_power=2,  # tightened from Medium's 4 - even less handed over for free
-    candidate_pool_size=3,  # compare up to 3 valid puzzles per attempt cycle, keep the best-paced (see difficulty_metrics.py)
+    # v12: cut from 3 to 2 (compare up to N valid puzzles, keep the
+    # best-paced - see difficulty_metrics.py). An old config.py comment
+    # claimed this roughly doubled median Hard generation time (30s->63s)
+    # - turned out stale/overstated once actually isolated: a clean A/B
+    # against the real generate_puzzle (not batch_instrument.py's
+    # simplified reimplementation, which doesn't even exercise this
+    # parameter) showed 1 vs 3 giving IDENTICAL 88% success, just
+    # ~11% slower median/max at 3. DirectCountClue's exclusion above is
+    # doing essentially all the real reliability work, not this. Landed on
+    # 2 as a deliberate middle ground - the 45s target is a goal, not a
+    # hard cutoff, so it's worth keeping a little of Hard's best-of-N
+    # pacing quality rather than dropping it to 1 purely on a benefit that
+    # measured out much smaller than assumed going in.
+    candidate_pool_size=2,
     starter_candidates=5,  # stacks with candidate_pool_size - each of those independent clue sets also gets a best-of-5 starter
 )
 

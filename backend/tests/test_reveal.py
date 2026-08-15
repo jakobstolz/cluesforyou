@@ -52,14 +52,15 @@ def test_reveal_for_cell_funfact_respects_used_keys():
 
 DIFFICULTY_ITERATIONS = {"easy": 5, "medium": 5, "hard": 2}  # Hard's tier-4 necessity checks are slow
 
-# See test_generator_stress.py's matching xfail for the full explanation:
-# DirectCountClue's direct-reveal fact measurably (and knowingly, by
-# deliberate choice) competes with require_combination's necessity proof -
-# worse for Hard's stricter min_combination_events=2.
-_DIRECT_COUNT_RELIABILITY_XFAIL_REASON = (
-    "DirectCountClue's direct-reveal fact competes with require_combination's "
-    "necessity proof (worse for Hard's stricter min_combination_events=2) - "
-    "accepted tradeoff, not a bug. See test_generator_stress.py's comment for measured numbers."
+# See test_generator_stress.py's matching comment/xfail: v12 substantially
+# improved (not fully resolved) Hard's require_combination reliability by
+# excluding DirectCountClue - measured ~88%, up from ~64%, on a fresh
+# 25-seed sweep. Still not 100%, so Hard keeps an xfail here too even
+# though this particular fixed seed happens to pass more often than not.
+_HARD_RELIABILITY_XFAIL_REASON = (
+    "Hard's require_combination gate is still not 100% reliable even after "
+    "v12's DirectCountClue exclusion (measured ~88%, up from ~64%) - a real, "
+    "reduced-but-real gap. See test_generator_stress.py's comment for the full numbers."
 )
 
 
@@ -68,10 +69,8 @@ _DIRECT_COUNT_RELIABILITY_XFAIL_REASON = (
     "difficulty",
     [
         "easy",
-        pytest.param(
-            "medium", marks=pytest.mark.xfail(reason=_DIRECT_COUNT_RELIABILITY_XFAIL_REASON, strict=False)
-        ),
-        pytest.param("hard", marks=pytest.mark.xfail(reason=_DIRECT_COUNT_RELIABILITY_XFAIL_REASON, strict=False)),
+        "medium",
+        pytest.param("hard", marks=pytest.mark.xfail(reason=_HARD_RELIABILITY_XFAIL_REASON, strict=False)),
     ],
 )
 def test_generated_attachment_chain_reaches_all_cells(difficulty):

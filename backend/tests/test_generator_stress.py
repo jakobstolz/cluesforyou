@@ -37,22 +37,26 @@ DIFFICULTY_SETTINGS = {
     "hard": {"n": 4, "max_seconds": 45.0},
 }
 
-# v10: DirectCountClue (counts.py) - a genuine direct-reveal+count combo -
-# is seeded (at most one per puzzle, see select_clue_subset) at every
-# difficulty. Its unconditional direct-reveal fact measurably competes
-# with require_combination's necessity proof, worse the stricter the
-# requirement: on a fixed 15-seed sweep (batch_instrument.py) Medium held
-# at ~93% (14/15) but Hard dropped to ~67% (10/15), down from 100% either
-# way pre-v10. Deliberately accepted, not a bug: the user chose "ship it
-# everywhere" after seeing these numbers, over restricting the clue type
-# to easier tiers or reverting it - see the DirectCountClue class
-# docstring and _find_combination_seed_pair's exclusion note for the full
-# mechanism. These two fixed-seed cases just happen to land on the
-# unlucky side of that tradeoff.
-_DIRECT_COUNT_RELIABILITY_XFAIL_REASON = (
-    "DirectCountClue's direct-reveal fact competes with require_combination's "
-    "necessity proof (worse for Hard's stricter min_combination_events=2) - "
-    "accepted tradeoff, not a bug. See test file comment for measured numbers."
+# v10 accepted a real tradeoff here: DirectCountClue (counts.py) was
+# seeded (at most one per puzzle) at EVERY difficulty, and its
+# unconditional direct-reveal fact measurably competed with
+# require_combination's necessity proof - on a fixed 15-seed sweep, Medium
+# held at ~93% but Hard dropped to ~67% (from 100% either way pre-v10).
+# v12 substantially improved this (not fully resolved) by excluding
+# DirectCountClue entirely whenever require_combination is set - measured
+# on a fresh 25-seed sweep (batch_instrument.py): Hard 64%->88%, Medium's
+# success held roughly flat (84%->76%, likely sampling noise at n=25) but
+# got much faster (median 6.89s->3.39s). Hard's candidate_pool_size was
+# also cut 3->1 (difficulty.py) - isolated separately and measured to have
+# a much smaller effect than an old stale comment suggested (88% success
+# either way), so DirectCountClue exclusion is doing essentially all the
+# real work. Still not 100% reliable at either difficulty - a real,
+# reduced-but-real gap, not fully closed. See project memory for the full
+# before/after numbers and what's still open.
+_HARD_RELIABILITY_XFAIL_REASON = (
+    "Hard's require_combination gate is still not 100% reliable even after "
+    "v12's DirectCountClue exclusion (measured ~88%, up from ~64%) - a real, "
+    "reduced-but-real gap. See test file comment for the full numbers."
 )
 
 
@@ -61,10 +65,8 @@ _DIRECT_COUNT_RELIABILITY_XFAIL_REASON = (
     "difficulty",
     [
         "easy",
-        pytest.param(
-            "medium", marks=pytest.mark.xfail(reason=_DIRECT_COUNT_RELIABILITY_XFAIL_REASON, strict=False)
-        ),
-        pytest.param("hard", marks=pytest.mark.xfail(reason=_DIRECT_COUNT_RELIABILITY_XFAIL_REASON, strict=False)),
+        "medium",
+        pytest.param("hard", marks=pytest.mark.xfail(reason=_HARD_RELIABILITY_XFAIL_REASON, strict=False)),
     ],
 )
 def test_generated_puzzles_are_valid(difficulty):

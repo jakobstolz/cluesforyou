@@ -214,14 +214,20 @@ def test_score_ignores_combination_timing_when_difficulty_does_not_allow_it():
     assert score_attachment_quality(early, EASY) == score_attachment_quality(late, EASY)
 
 
-def test_candidate_pool_size_only_expanded_for_hard():
-    # Easy/Medium keep candidate_pool_size=1 (generate_puzzle returns the
-    # very first success immediately, unaffected by generate-N-pick-best).
-    # The best-of-N search is Hard-only (v8: dropped from Medium, which
-    # inherited it briefly from the pre-reshuffle Hard preset).
+def test_candidate_pool_size_reduced_for_hard():
+    # v12: Hard's best-of-N candidate search (v8's "generate 3, keep the
+    # best-paced" quality lever) was measured, isolated against the real
+    # generate_puzzle, to cost much less than an old stale comment claimed
+    # (identical 88% success at 1 vs 3, ~11% slower median/max at 3) - so
+    # DirectCountClue's exclusion (see build_candidate_pool) is doing
+    # essentially all the real reliability work, not this. Cut from 3 to
+    # 2 as a deliberate middle ground: the 45s target is a goal, not a
+    # hard cutoff, so it's worth keeping a little of the pacing quality
+    # rather than dropping to 1 purely on a benefit that measured out
+    # smaller than assumed. See project memory for the full numbers.
     assert EASY.candidate_pool_size == 1
     assert MEDIUM.candidate_pool_size == 1
-    assert HARD.candidate_pool_size > 1
+    assert HARD.candidate_pool_size == 2
 
 
 def test_min_combination_events_only_raised_for_hard():

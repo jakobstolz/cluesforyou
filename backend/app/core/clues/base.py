@@ -19,7 +19,7 @@ import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from backend.app.core.types import Cell, Grid, KnownState, Solution
+from backend.app.core.types import CELL_MASK, Cell, Grid, KnownState, Solution, cells_to_mask
 
 _id_counter = itertools.count()
 
@@ -75,7 +75,13 @@ class ReasoningTrace:
 
 class Clue(ABC):
     """Base class for all clue flavors. Subclasses must set any fields
-    `render_text` depends on *before* calling `super().__init__(...)`.
+    `render_text` depends on *before* calling `super().__init__(...)`, and
+    must also set `self.scope_order: tuple[Cell, ...]` before calling
+    `super().__init__(...)` - the FIXED, deterministic cell order relevant
+    to this clue's own scope (e.g. CountConstraintClue's `scope_list` as a
+    tuple; CompareCountClue's `scope_a + scope_b`; a flattened `groups`
+    for AtLeastOneCriminalClue) - see `propagate()`'s docstring for why
+    this matters beyond just documentation.
 
     `rng`, if given, is the SAME per-generation `random.Random` instance
     threaded through generator.py - subclasses' render_text() should pass
@@ -87,10 +93,12 @@ class Clue(ABC):
     test suite - are unaffected."""
 
     tier: int
+    scope_order: tuple[Cell, ...]
 
     def __init__(self, scope: frozenset[Cell], grid: Grid, rng: random.Random | None = None):
         self.id: str = f"clue{next(_id_counter)}"
         self.scope: frozenset[Cell] = scope
+        self.scope_mask: int = cells_to_mask(scope)
         self._rng: random.Random = rng if rng is not None else random
         self.text: str = self.render_text(grid)
 
@@ -103,11 +111,43 @@ class Clue(ABC):
         """Add this clue's constraint to a CP-SAT model."""
 
     @abstractmethod
+    def propagate_mask(self, known_mask: int, criminal_mask: int) -> tuple[int, int]:
+        """Bitmask-native equivalent of propagate() - the actual hot-path
+        primitive reasoner.py's propagate_to_fixpoint calls directly, many
+        times per generation attempt (this is the single biggest measured
+        cost in puzzle generation - see project memory). Returns
+        (newly_known_mask, newly_criminal_mask): which cells (as bits in
+        types.CELL_MASK's numbering) are newly forced, and among those,
+        which are criminal - (0, 0) if nothing new can be deduced yet.
+        Raise ContradictionError if (known_mask, criminal_mask) is
+        impossible under this clue - same contract as propagate()."""
+
     def propagate(self, known: KnownState) -> KnownState:
-        """Return newly-deduced {cell: value} facts derivable from this
-        clue plus `known` alone. Return {} if nothing new can be deduced
-        yet. Raise ContradictionError if `known` is impossible under this
-        clue."""
+        """Dict-based compatibility wrapper around propagate_mask() - the
+        public API every external caller (tests, anything outside
+        reasoner.py's hot loop) uses. Single source of truth is
+        propagate_mask(); this only converts at the boundary, so the two
+        can never silently drift apart. Iterates `self.scope_order` (not
+        an arbitrary bit-scan order) so a clue that forces several cells
+        at once returns them in the exact same order the original
+        per-clue dict-comprehension implementations always did - this
+        isn't just cosmetic: reasoner.py's Step order for a multi-cell
+        firing is what generator.py's FIFO attachment uses to decide
+        which cell a subsequently-attached clue lands on, so a different
+        order would silently change the seed->puzzle mapping the seed
+        system depends on, even though the puzzle would still be equally
+        valid. See propagate_mask's docstring for the hot-path version."""
+        known_mask = 0
+        criminal_mask = 0
+        for c, v in known.items():
+            bit = CELL_MASK[c]
+            known_mask |= bit
+            if v:
+                criminal_mask |= bit
+        new_known_mask, new_criminal_mask = self.propagate_mask(known_mask, criminal_mask)
+        if new_known_mask == 0:
+            return {}
+        return {c: bool(new_criminal_mask & CELL_MASK[c]) for c in self.scope_order if CELL_MASK[c] & new_known_mask}
 
     @abstractmethod
     def render_text(self, grid: Grid) -> str:

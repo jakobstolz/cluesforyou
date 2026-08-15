@@ -21,13 +21,16 @@ import random
 
 from backend.app.core.clues.base import Clue, ContradictionError
 from backend.app.core.clues.phrasing import compare_clue_text
-from backend.app.core.types import Cell, Grid, KnownState, Solution
+from backend.app.core.types import Cell, Grid, Solution, cells_to_mask
 
 
-def _bounds(scope: list[Cell], known: KnownState) -> tuple[int, int, list[Cell]]:
-    unknowns = [c for c in scope if c not in known]
-    known_criminals = sum(1 for c in scope if known.get(c) is True)
-    return known_criminals, known_criminals + len(unknowns), unknowns
+def _bounds_mask(group_mask: int, known_mask: int, criminal_mask: int) -> tuple[int, int, int]:
+    """(known_criminals, max_possible_criminals, unknown_mask) for one
+    side of the comparison - bitmask equivalent of the old dict-based
+    _bounds()."""
+    unknown_mask = group_mask & ~known_mask
+    known_criminals = (group_mask & known_mask & criminal_mask).bit_count()
+    return known_criminals, known_criminals + unknown_mask.bit_count(), unknown_mask
 
 
 class CompareCountClue(Clue):
@@ -50,6 +53,19 @@ class CompareCountClue(Clue):
         self.relation = relation
         self.label_a = label_a
         self.label_b = label_b
+        self.scope_a_mask = cells_to_mask(self.scope_a)
+        self.scope_b_mask = cells_to_mask(self.scope_b)
+        # Matches _greater_lesser()'s "greater side" ordering (GT: a is
+        # greater; LT: b is greater), so a simultaneous GT/LT reveal
+        # returns cells in the exact order the original propagate() dict-
+        # comprehension always did (greater side's forced-True cells,
+        # then lesser side's forced-False cells) - see Clue.propagate()'s
+        # docstring on why this matters for seed->puzzle reproducibility.
+        # EQ never forces more than one cell at once, so either order is
+        # fine there.
+        self.scope_order = (
+            tuple(self.scope_b) + tuple(self.scope_a) if relation == "LT" else tuple(self.scope_a) + tuple(self.scope_b)
+        )
         super().__init__(frozenset(self.scope_a) | frozenset(self.scope_b), grid, rng=rng)
 
     def evaluate(self, solution: Solution) -> bool:
@@ -71,46 +87,45 @@ class CompareCountClue(Clue):
         else:
             model.Add(sa == sb)
 
-    def _greater_lesser(self) -> tuple[list[Cell], list[Cell]]:
-        return (self.scope_a, self.scope_b) if self.relation == "GT" else (self.scope_b, self.scope_a)
+    def _greater_lesser_masks(self) -> tuple[int, int]:
+        return (self.scope_a_mask, self.scope_b_mask) if self.relation == "GT" else (self.scope_b_mask, self.scope_a_mask)
 
-    def propagate(self, known: KnownState) -> KnownState:
+    def propagate_mask(self, known_mask: int, criminal_mask: int) -> tuple[int, int]:
         if self.relation == "EQ":
-            return self._propagate_eq(known)
+            return self._propagate_eq_mask(known_mask, criminal_mask)
 
-        greater, lesser = self._greater_lesser()
-        min_g, max_g, unk_g = _bounds(greater, known)
-        min_l, max_l, unk_l = _bounds(lesser, known)
+        greater_mask, lesser_mask = self._greater_lesser_masks()
+        min_g, max_g, unk_g = _bounds_mask(greater_mask, known_mask, criminal_mask)
+        min_l, max_l, unk_l = _bounds_mask(lesser_mask, known_mask, criminal_mask)
 
         if max_g <= min_l:
             raise ContradictionError(self.id)
 
-        facts: KnownState = {}
         if max_g - min_l == 1:
-            for c in unk_g:
-                facts[c] = True
-            for c in unk_l:
-                facts[c] = False
-        return facts
+            # greater side's unknowns all forced True, lesser side's all
+            # forced False - unk_g/unk_l are disjoint (scope_a/scope_b are
+            # documented as disjoint groups), so OR-ing them is safe.
+            return unk_g | unk_l, unk_g
+        return 0, 0
 
-    def _propagate_eq(self, known: KnownState) -> KnownState:
-        min_a, max_a, unk_a = _bounds(self.scope_a, known)
-        min_b, max_b, unk_b = _bounds(self.scope_b, known)
+    def _propagate_eq_mask(self, known_mask: int, criminal_mask: int) -> tuple[int, int]:
+        min_a, max_a, unk_a = _bounds_mask(self.scope_a_mask, known_mask, criminal_mask)
+        min_b, max_b, unk_b = _bounds_mask(self.scope_b_mask, known_mask, criminal_mask)
 
         if max_a < min_b or max_b < min_a:
             raise ContradictionError(self.id)
 
-        if min_a == max_a and len(unk_b) == 1:
+        if min_a == max_a and unk_b.bit_count() == 1:
             needed = min_a - min_b
             if needed not in (0, 1):
                 raise ContradictionError(self.id)
-            return {unk_b[0]: bool(needed)}
-        if min_b == max_b and len(unk_a) == 1:
+            return (unk_b, unk_b) if needed else (unk_b, 0)
+        if min_b == max_b and unk_a.bit_count() == 1:
             needed = min_b - min_a
             if needed not in (0, 1):
                 raise ContradictionError(self.id)
-            return {unk_a[0]: bool(needed)}
-        return {}
+            return (unk_a, unk_a) if needed else (unk_a, 0)
+        return 0, 0
 
     def render_text(self, grid: Grid) -> str:
         return compare_clue_text(self, grid, rng=self._rng)

@@ -12,7 +12,7 @@ import random
 
 from backend.app.core.clues.base import Clue, ContradictionError
 from backend.app.core.clues.phrasing import count_clue_text, direct_count_clue_text
-from backend.app.core.types import Cell, Grid, KnownState, ScopeKind, Solution
+from backend.app.core.types import CELL_MASK, Cell, Grid, ScopeKind, Solution
 
 
 class CountConstraintClue(Clue):
@@ -26,6 +26,7 @@ class CountConstraintClue(Clue):
         rng: random.Random | None = None,
     ):
         self.scope_list: list[Cell] = list(scope)
+        self.scope_order: tuple[Cell, ...] = tuple(self.scope_list)
         self.scope_kind = scope_kind
         self.target = target
         # Meaning of `index` depends on scope_kind: row/col number (int),
@@ -42,21 +43,23 @@ class CountConstraintClue(Clue):
     def add_to_model(self, model, cell_vars) -> None:
         model.Add(sum(cell_vars[c] for c in self.scope_list) == self.target)
 
-    def propagate(self, known: KnownState) -> KnownState:
-        unknowns = [c for c in self.scope_list if c not in known]
-        known_criminals = sum(1 for c in self.scope_list if known.get(c) is True)
+    def propagate_mask(self, known_mask: int, criminal_mask: int) -> tuple[int, int]:
+        scope_mask = self.scope_mask
+        unknown_mask = scope_mask & ~known_mask
+        known_criminals = (scope_mask & known_mask & criminal_mask).bit_count()
+        unknown_count = unknown_mask.bit_count()
         min_possible = known_criminals
-        max_possible = known_criminals + len(unknowns)
+        max_possible = known_criminals + unknown_count
         if self.target < min_possible or self.target > max_possible:
             raise ContradictionError(self.id)
-        if not unknowns:
-            return {}
+        if unknown_mask == 0:
+            return 0, 0
         needed = self.target - known_criminals
         if needed == 0:
-            return {c: False for c in unknowns}
-        if needed == len(unknowns):
-            return {c: True for c in unknowns}
-        return {}
+            return unknown_mask, 0
+        if needed == unknown_count:
+            return unknown_mask, unknown_mask
+        return 0, 0
 
     def render_text(self, grid: Grid) -> str:
         return count_clue_text(self, grid, rng=self._rng)
@@ -112,20 +115,26 @@ class DirectCountClue(CountConstraintClue):
         model.Add(cell_vars[self.cell] == int(self.is_criminal))
         super().add_to_model(model, cell_vars)
 
-    def propagate(self, known: KnownState) -> KnownState:
-        if self.cell in known:
-            if known[self.cell] != self.is_criminal:
+    def propagate_mask(self, known_mask: int, criminal_mask: int) -> tuple[int, int]:
+        cell_bit = CELL_MASK[self.cell]
+        if known_mask & cell_bit:
+            if bool(criminal_mask & cell_bit) != self.is_criminal:
                 raise ContradictionError(self.id)
-            direct_facts: KnownState = {}
+            direct_known_mask = 0
+            direct_criminal_mask = 0
+            seeded_known = known_mask
+            seeded_criminal = criminal_mask
         else:
-            direct_facts = {self.cell: self.is_criminal}
-        # Seed `cell`'s fact into the group-tightening check even if it
-        # wasn't already in `known` - so the rest of the group can tighten
-        # in the SAME propagate() call the direct reveal happens in, not a
-        # round later.
-        seeded = dict(known)
-        seeded[self.cell] = self.is_criminal
-        return {**direct_facts, **super().propagate(seeded)}
+            direct_known_mask = cell_bit
+            direct_criminal_mask = cell_bit if self.is_criminal else 0
+            # Seed `cell`'s fact into the group-tightening check even if it
+            # wasn't already known - so the rest of the group can tighten
+            # in the SAME propagate_mask() call the direct reveal happens
+            # in, not a round later.
+            seeded_known = known_mask | cell_bit
+            seeded_criminal = criminal_mask | direct_criminal_mask
+        group_known_mask, group_criminal_mask = super().propagate_mask(seeded_known, seeded_criminal)
+        return direct_known_mask | group_known_mask, direct_criminal_mask | group_criminal_mask
 
     def guaranteed_reveal_cell(self) -> Cell | None:
         return self.cell

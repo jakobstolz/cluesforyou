@@ -6,7 +6,7 @@ import random
 
 from backend.app.core.clues.base import Clue, ContradictionError
 from backend.app.core.clues.phrasing import direct_clue_text, neighbor_direct_clue_text
-from backend.app.core.types import Cell, Grid, KnownState, Solution, identity_text
+from backend.app.core.types import CELL_MASK, Cell, Grid, Solution, identity_text
 
 
 class DirectRevealClue(Clue):
@@ -33,6 +33,7 @@ class DirectRevealClue(Clue):
         self.cell = cell
         self.is_criminal = is_criminal
         self.neighbor_context = neighbor_context
+        self.scope_order: tuple[Cell, ...] = (cell,)
         super().__init__(frozenset({cell}), grid, rng=rng)
 
     def evaluate(self, solution: Solution) -> bool:
@@ -41,12 +42,13 @@ class DirectRevealClue(Clue):
     def add_to_model(self, model, cell_vars) -> None:
         model.Add(cell_vars[self.cell] == int(self.is_criminal))
 
-    def propagate(self, known: KnownState) -> KnownState:
-        if self.cell in known:
-            if known[self.cell] != self.is_criminal:
+    def propagate_mask(self, known_mask: int, criminal_mask: int) -> tuple[int, int]:
+        cell_bit = CELL_MASK[self.cell]
+        if known_mask & cell_bit:
+            if bool(criminal_mask & cell_bit) != self.is_criminal:
                 raise ContradictionError(self.id)
-            return {}
-        return {self.cell: self.is_criminal}
+            return 0, 0
+        return (cell_bit, cell_bit) if self.is_criminal else (cell_bit, 0)
 
     def render_text(self, grid: Grid) -> str:
         if self.neighbor_context is not None:

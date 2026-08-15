@@ -1,0 +1,7 @@
+# Extra dependencies for local dev tooling only (backend/scripts/ - all
+# gitignored) - NOT installed on Render. Currently just the deduction-
+# graph visualizer in inspect_generation.py (--graph flag).
+#
+# Install with: pip install -r requirements-dev.txt
+networkx>=3.0
+matplotlib>=3.8

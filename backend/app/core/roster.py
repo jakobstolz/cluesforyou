@@ -41,7 +41,7 @@ DEFAULT_ENTRIES: list[tuple[str, str]] = [
     ("Alina", "Barkeeperin"),
     ("Syd", "Pink Floyd"),
     ("Rogers", "Pink Floyd"),
-    ("Richards", "Pink Floyd"),
+    ("Richard", "Pink Floyd"),
     ("Nick", "Pink Floyd"),
     ("Beastboy", "Dichter"),
     ("Messi", "Fußballer"),

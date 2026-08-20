@@ -27,14 +27,14 @@ DEFAULT_ENTRIES: list[tuple[str, str]] = [
     ("Ella", "Barkeeperin"),
     ("Tom", "DJ"),
     ("Dominik", "DJ"),
-    ("Aileen", "Comedian"),
+    ("Aileen", "Erfinderin"),
     ("Lee-Ann", "Barkeeperin"),
     ("Lilly", "Mathematikerin"),
     ("Julian", "Comedian"),
     ("Benita", "Politikerin"),
     ("Kim", "Mitbewohnerin"),
     ("Jannis", "Fußballer"),
-    ("Sophia", "Fußballerin"),
+    ("Michelle", "Fußballerin"),
     ("ACE Jonas", "Politiker"),
     ("Matthias", "Mitbewohner"),
     ("Tjark", "Mitbewohner"),
@@ -45,6 +45,7 @@ DEFAULT_ENTRIES: list[tuple[str, str]] = [
     ("Nick", "Pink Floyd"),
     ("Beastboy", "Dichter"),
     ("Messi", "Fußballer"),
+    ("Kronos" , "Erfinder")
 ]
 
 

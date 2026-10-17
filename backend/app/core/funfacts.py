@@ -52,7 +52,6 @@ CRIMINAL_FACTS = [
 # whenever real content is ready.
 ACE_INNOCENT_FACTS = [
     "{name} gewinnt verdächtig oft beim Watten.",
-    "{name} zählt beim {profession}-Dasein heimlich mit.",
     "{name} bluffed nie, nur strategisches Schweigen.",
     "{name} hat ein Pokerface, das selbst Profis neidisch macht.",
     "{name} sticht an Spitz dant.",

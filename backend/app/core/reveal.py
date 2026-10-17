@@ -31,6 +31,7 @@ def reveal_for_cell(
     layout: Grid,
     cell_clue: dict[Cell, Clue],
     used_funfact_keys: set[str],
+    ace: bool = False,
 ) -> Reveal:
     clue = cell_clue.get(cell)
     if clue is not None:
@@ -38,5 +39,5 @@ def reveal_for_cell(
 
     row, col = cell
     person = layout[row][col]
-    text = pick_funfact(person.name, person.profession, value, used_funfact_keys)
+    text = pick_funfact(person.name, person.profession, value, used_funfact_keys, ace=ace)
     return Reveal(kind="funfact", text=text)

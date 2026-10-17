@@ -9,6 +9,11 @@ const state = {
   cellDimmed: null, // 2D array of bool - client-only "greyed out" toggle for already-solved cells
   easterEggHearts: null, // 2D array of bool - client-only, toggled by double-clicking Annika
   startTime: null, // ms timestamp (Date.now()) when the current puzzle started - solve timer
+  // ACE MODE: an app-level setting, not per-puzzle data - deliberately NOT
+  // touched by resetState() below, and persisted across reloads (see
+  // main.js's initAceMode/onAceModeToggleClick) so it survives "New
+  // puzzle" and leaving/reopening the app, same as the password unlock.
+  aceMode: false,
 };
 
 function resetState() {

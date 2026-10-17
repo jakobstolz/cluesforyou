@@ -1,12 +1,18 @@
 // Roster management: fetching, rendering, and editing the shared pool of
 // (name, profession) pairs puzzles are sampled from.
 
-const ROSTER_MIN_SIZE = 25;
+// Must match the backend's real requirement (NUM_CELLS, see
+// backend/app/config.py / api/routes.py's MIN_ROSTER_SIZE) - not an
+// arbitrary buffer. Previously hardcoded to 25 (the default roster's old
+// entry count, not an actual requirement), which silently blocked
+// "Generate puzzle" for any roster - e.g. ACE MODE's own - with fewer
+// than 25 distinct names even though generation works fine from 20.
+const ROSTER_MIN_SIZE = 20;
 let rosterCache = [];
 
 async function refreshRosterStatus() {
   try {
-    const data = await api.getRoster();
+    const data = await api.getRoster(state.aceMode);
     rosterCache = data.people;
   } catch (err) {
     document.getElementById("roster-status").textContent = `Couldn't load roster: ${err.message}`;
@@ -75,7 +81,7 @@ function clearRosterError() {
 async function onDeleteRosterEntry(id) {
   clearRosterError();
   try {
-    await api.deleteRosterEntry(id);
+    await api.deleteRosterEntry(id, state.aceMode);
     await refreshRosterStatus();
     renderRosterList();
   } catch (err) {
@@ -91,7 +97,7 @@ async function onAddPersonSubmit(event) {
   const profInput = document.getElementById("add-person-profession");
 
   try {
-    await api.addRosterEntry(nameInput.value.trim(), profInput.value.trim());
+    await api.addRosterEntry(nameInput.value.trim(), profInput.value.trim(), state.aceMode);
     nameInput.value = "";
     profInput.value = "";
     nameInput.focus();

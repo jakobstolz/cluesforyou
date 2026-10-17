@@ -45,6 +45,10 @@ class GeneratePuzzleRequest(BaseModel):
     # roster always generates the same puzzle (see generator.py). Empty/
     # whitespace-only is treated as "no seed" (auto-generate one).
     seed: str | None = Field(default=None, max_length=64)
+    # ACE MODE: swaps in its own roster + fun-fact pool (see core/roster.py
+    # and core/funfacts.py) - everything else about generation/play is
+    # identical either way.
+    ace_mode: bool = False
 
     @field_validator("seed")
     @classmethod

@@ -1,19 +1,19 @@
 // Thin fetch wrappers around the backend JSON API.
 const api = {
-  async getRoster() {
-    return api._json("/api/roster");
+  async getRoster(ace = false) {
+    return api._json(`/api/roster${ace ? "?ace=true" : ""}`);
   },
-  async addRosterEntry(name, profession) {
-    return api._json("/api/roster", "POST", { name, profession });
+  async addRosterEntry(name, profession, ace = false) {
+    return api._json(`/api/roster${ace ? "?ace=true" : ""}`, "POST", { name, profession });
   },
-  async updateRosterEntry(id, name, profession) {
-    return api._json(`/api/roster/${id}`, "PUT", { name, profession });
+  async updateRosterEntry(id, name, profession, ace = false) {
+    return api._json(`/api/roster/${id}${ace ? "?ace=true" : ""}`, "PUT", { name, profession });
   },
-  async deleteRosterEntry(id) {
-    return api._json(`/api/roster/${id}`, "DELETE", null, /* expectBody */ false);
+  async deleteRosterEntry(id, ace = false) {
+    return api._json(`/api/roster/${id}${ace ? "?ace=true" : ""}`, "DELETE", null, /* expectBody */ false);
   },
-  async generatePuzzle(difficulty, seed) {
-    return api._json("/api/puzzle", "POST", { difficulty, seed: seed || null });
+  async generatePuzzle(difficulty, seed, aceMode = false) {
+    return api._json("/api/puzzle", "POST", { difficulty, seed: seed || null, ace_mode: aceMode });
   },
   async guess(puzzleId, row, col, guess) {
     return api._json("/api/guess", "POST", { puzzle_id: puzzleId, row, col, guess });

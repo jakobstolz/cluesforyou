@@ -18,6 +18,8 @@
   --shadow: 0 2px 10px rgba(30, 20, 10, 0.08);
   --radius: 10px;
   --tap-min: 44px; /* minimum comfortable touch target */
+  --ace-ink: #1a1a1a; /* ACE MODE's own accent pair - playing-card black/gold */
+  --ace-gold: #d4af37;
 }
 
 * {
@@ -182,6 +184,32 @@ button:active:not(:disabled) {
   width: 100%;
   margin-top: 0.6rem;
   font-size: 1rem;
+}
+
+/* ---------- ACE MODE ---------- */
+
+.ace-mode-btn {
+  width: 100%;
+  margin-bottom: 0.75rem;
+}
+
+.ace-mode-btn.active {
+  background: var(--ace-ink);
+  color: var(--ace-gold);
+  border-color: var(--ace-gold);
+}
+
+.ace-badge {
+  background: var(--ace-ink);
+  color: var(--ace-gold);
+}
+
+/* A subtle whole-app accent while ACE MODE is active, so it's obvious at
+   a glance which roster/fun-facts pool is in play - everything else about
+   the layout/behavior stays identical. */
+body.ace-mode {
+  --accent: var(--ace-ink);
+  --accent-soft: #e9e4d8;
 }
 
 .error-text {

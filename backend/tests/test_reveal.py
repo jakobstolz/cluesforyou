@@ -5,7 +5,7 @@ import pytest
 from backend.app.config import NUM_CELLS
 from backend.app.core.clues import DirectRevealClue
 from backend.app.core.difficulty import get_difficulty
-from backend.app.core.funfacts import CRIMINAL_FACTS, INNOCENT_FACTS
+from backend.app.core.funfacts import ACE_CRIMINAL_FACTS, ACE_INNOCENT_FACTS, CRIMINAL_FACTS
 from backend.app.core.generator import generate_puzzle
 from backend.app.core.grid import random_grid_layout
 from backend.app.core.reasoner import run_reasoner
@@ -48,6 +48,34 @@ def test_reveal_for_cell_funfact_respects_used_keys():
     # With used_keys tracked, every template should be used at most once
     # while the pool isn't exhausted.
     assert len(texts) == len(CRIMINAL_FACTS)
+
+
+def test_reveal_for_cell_ace_mode_uses_the_ace_pool():
+    grid = random_grid_layout(POOL, random.Random(4))
+    cell = (3, 3)
+    person = grid[cell[0]][cell[1]]
+    used = set()
+    texts_ace = {reveal_for_cell(cell, True, grid, {}, used, ace=True).text for _ in range(len(ACE_CRIMINAL_FACTS) * 3)}
+    # Every observed text must be an exact render of one of ACE MODE's own
+    # templates for this person - not just "different from the default
+    # pool" (the two pools are allowed to share some lines/content; that's
+    # a real, legitimate choice, not something this test should assume
+    # against).
+    possible_ace_texts = {t.format(name=person.name, profession=person.profession) for t in ACE_CRIMINAL_FACTS}
+    assert texts_ace <= possible_ace_texts
+    assert len(texts_ace) <= len(ACE_CRIMINAL_FACTS)
+    # ace mode's used_keys use a distinct prefix, so an ace pick never
+    # exhausts/collides with the default pool's own bookkeeping.
+    assert all(key.startswith("ac") for key in used)
+
+
+def test_reveal_for_cell_ace_mode_innocent_pool_differs_too():
+    grid = random_grid_layout(POOL, random.Random(5))
+    cell = (0, 2)
+    person = grid[cell[0]][cell[1]]
+    texts_ace = {reveal_for_cell(cell, False, grid, {}, set(), ace=True).text for _ in range(len(ACE_INNOCENT_FACTS) * 3)}
+    possible_ace_texts = {t.format(name=person.name, profession=person.profession) for t in ACE_INNOCENT_FACTS}
+    assert texts_ace <= possible_ace_texts
 
 
 DIFFICULTY_ITERATIONS = {"easy": 5, "medium": 5, "hard": 2}  # Hard's tier-4 necessity checks are slow

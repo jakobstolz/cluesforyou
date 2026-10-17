@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from backend.app.config import GRID_COLS, GRID_ROWS, NUM_CELLS
 from backend.app.core import roster as roster_store
+from backend.app.core.funfacts import ACE_CRIMINAL_FACTS, ACE_INNOCENT_FACTS
 from backend.app.main import app
 from backend.app.state import PUZZLES
 
@@ -11,15 +12,17 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def isolated_roster(tmp_path, monkeypatch):
-    """Every test gets a fresh, isolated roster file, auto-seeded with the
-    default 25 entries on first read (see core/roster.py)."""
+    """Every test gets a fresh, isolated roster file (default and ACE MODE
+    alike), auto-seeded with their own defaults on first read (see
+    core/roster.py)."""
     monkeypatch.setattr(roster_store, "DATA_DIR", tmp_path)
     monkeypatch.setattr(roster_store, "ROSTER_PATH", tmp_path / "roster.json")
+    monkeypatch.setattr(roster_store, "ACE_ROSTER_PATH", tmp_path / "roster_ace.json")
     yield
 
 
-def _generate(difficulty="easy"):
-    resp = client.post("/api/puzzle", json={"difficulty": difficulty})
+def _generate(difficulty="easy", ace_mode=False):
+    resp = client.post("/api/puzzle", json={"difficulty": difficulty, "ace_mode": ace_mode})
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -33,11 +36,11 @@ def test_health():
 # ---------- Roster ----------
 
 
-def test_roster_get_auto_seeds_25_defaults():
+def test_roster_get_auto_seeds_defaults():
     resp = client.get("/api/roster")
     assert resp.status_code == 200
     people = resp.json()["people"]
-    assert len(people) == 25
+    assert len(people) == len(roster_store.DEFAULT_ENTRIES)
     assert all({"id", "name", "profession"} == set(p.keys()) for p in people)
 
 
@@ -110,7 +113,7 @@ def test_create_puzzle_rejects_bad_difficulty():
 
 def test_create_puzzle_rejects_undersized_roster():
     people = client.get("/api/roster").json()["people"]
-    # Shrink the roster below the NUM_CELLS-person minimum (25 defaults, need < 20).
+    # Shrink the roster below the NUM_CELLS-person minimum.
     for entry in people[: len(people) - NUM_CELLS + 1]:
         client.delete(f"/api/roster/{entry['id']}")
     resp = client.post("/api/puzzle", json={"difficulty": "easy"})
@@ -234,3 +237,86 @@ def test_hint_fills_a_cell_matching_the_solution_and_its_own_reveal():
             assert body["reveal"]["text"] == record.cell_clue[cell].text
         else:
             assert body["reveal"]["kind"] == "funfact"
+
+
+# ---------- ACE MODE ----------
+
+
+def test_ace_roster_is_independent_of_default_roster():
+    default_people = client.get("/api/roster").json()["people"]
+    ace_people = client.get("/api/roster?ace=true").json()["people"]
+    # Each mode seeds from its OWN defaults - checked by exact (name,
+    # profession) content, not by assuming the two lists share no names
+    # (they're allowed to - e.g. the same person appearing in both with a
+    # different profession is a legitimate, real scenario here).
+    assert {(p["name"], p["profession"]) for p in default_people} == set(roster_store.DEFAULT_ENTRIES)
+    assert {(p["name"], p["profession"]) for p in ace_people} == set(roster_store.ACE_DEFAULT_ENTRIES)
+
+
+def test_ace_roster_add_update_delete_do_not_touch_default_roster():
+    default_before = client.get("/api/roster").json()["people"]
+
+    created = client.post("/api/roster?ace=true", json={"name": "Fiona", "profession": "Pilot"})
+    assert created.status_code == 201
+    entry = created.json()
+
+    assert any(p["id"] == entry["id"] for p in client.get("/api/roster?ace=true").json()["people"])
+    assert all(p["id"] != entry["id"] for p in client.get("/api/roster").json()["people"])
+
+    updated = client.put(f"/api/roster/{entry['id']}?ace=true", json={"name": "Fiona", "profession": "Astronaut"})
+    assert updated.status_code == 200
+    assert updated.json()["profession"] == "Astronaut"
+
+    deleted = client.delete(f"/api/roster/{entry['id']}?ace=true")
+    assert deleted.status_code == 204
+    assert all(p["id"] != entry["id"] for p in client.get("/api/roster?ace=true").json()["people"])
+
+    # The default roster was never touched by any of the above.
+    assert client.get("/api/roster").json()["people"] == default_before
+
+
+def test_create_puzzle_in_ace_mode_uses_the_ace_roster():
+    data = _generate("easy", ace_mode=True)
+    ace_names = {name for name, _ in roster_store.ACE_DEFAULT_ENTRIES}
+    grid_names = {cell["name"] for row in data["grid"] for cell in row}
+    assert grid_names <= ace_names
+
+    puzzle_id = data["puzzle_id"]
+    record = PUZZLES[puzzle_id]
+    assert record.ace is True
+
+
+def test_create_puzzle_without_ace_mode_uses_the_default_roster():
+    data = _generate("easy")
+    default_names = {name for name, _ in roster_store.DEFAULT_ENTRIES}
+    grid_names = {cell["name"] for row in data["grid"] for cell in row}
+    assert grid_names <= default_names
+
+    puzzle_id = data["puzzle_id"]
+    record = PUZZLES[puzzle_id]
+    assert record.ace is False
+
+
+def test_ace_mode_guess_reveals_come_from_the_ace_funfact_pool():
+    data = _generate("easy", ace_mode=True)
+    puzzle_id = data["puzzle_id"]
+    record = PUZZLES[puzzle_id]
+    starter_cell = (data["starter"]["row"], data["starter"]["col"])
+    # Any cell without its own attached clue reveals a fun fact on a
+    # correct guess - find one and confirm the EXACT text is one this
+    # person's name/profession could only have produced from ACE MODE's
+    # own pool, not the default one (rendering every template directly,
+    # not prefix-matching - every template here starts with "{name}").
+    fun_fact_cell = next(c for c in record.solution if c != starter_cell and c not in record.cell_clue)
+    guess = "criminal" if record.solution[fun_fact_cell] else "innocent"
+    resp = client.post(
+        "/api/guess",
+        json={"puzzle_id": puzzle_id, "row": fun_fact_cell[0], "col": fun_fact_cell[1], "guess": guess},
+    )
+    body = resp.json()
+    assert body["reveal"]["kind"] == "funfact"
+
+    person = record.layout[fun_fact_cell[0]][fun_fact_cell[1]]
+    ace_pool = ACE_CRIMINAL_FACTS if guess == "criminal" else ACE_INNOCENT_FACTS
+    possible_ace_texts = {t.format(name=person.name, profession=person.profession) for t in ace_pool}
+    assert body["reveal"]["text"] in possible_ace_texts

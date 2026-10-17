@@ -38,6 +38,33 @@ function finishTimer() {
   document.getElementById("win-time").textContent = `(${elapsed})`;
 }
 
+// ACE MODE: swaps the roster + fun-fact pool (see backend/app/core/roster.py
+// and core/funfacts.py) - everything else about generation/play is
+// identical either way. Persisted like the password unlock, so it
+// survives reloads/new puzzles until explicitly toggled off again.
+const ACE_MODE_STORAGE_KEY = "cfy_ace_mode";
+
+function initAceMode() {
+  state.aceMode = localStorage.getItem(ACE_MODE_STORAGE_KEY) === "1";
+  applyAceModeUI();
+  document.getElementById("ace-mode-btn").addEventListener("click", onAceModeToggleClick);
+}
+
+async function onAceModeToggleClick() {
+  state.aceMode = !state.aceMode;
+  localStorage.setItem(ACE_MODE_STORAGE_KEY, state.aceMode ? "1" : "0");
+  applyAceModeUI();
+  await refreshRosterStatus(); // the roster differs per mode, so the count/readiness display must too
+}
+
+function applyAceModeUI() {
+  const btn = document.getElementById("ace-mode-btn");
+  btn.classList.toggle("active", state.aceMode);
+  btn.setAttribute("aria-pressed", String(state.aceMode));
+  btn.textContent = state.aceMode ? "♠️ ACE MODE: ON" : "♠️ ACE MODE";
+  document.body.classList.toggle("ace-mode", state.aceMode);
+}
+
 // Password gate: not real security (the API stays open regardless) - just
 // a fun "find the password" barrier before the actual app content shows,
 // per the site being "shipped" to friends/family as a puzzle in itself.
@@ -77,6 +104,7 @@ function unlockApp() {
 }
 
 function initApp() {
+  initAceMode();
   initRosterUI();
   initDialogUI();
   refreshRosterStatus();
@@ -112,7 +140,7 @@ async function onGenerateClick() {
   btn.textContent = "Generating…";
 
   try {
-    const data = await api.generatePuzzle(difficulty, seed);
+    const data = await api.generatePuzzle(difficulty, seed, state.aceMode);
     startGame(data);
   } catch (err) {
     errorEl.textContent = err.message;
@@ -154,6 +182,7 @@ function startGame(data) {
   state.easterEggHearts = Array.from({ length: numRows }, () => Array(numCols).fill(false));
 
   document.getElementById("difficulty-badge").textContent = data.difficulty;
+  document.getElementById("ace-badge").classList.toggle("hidden", !state.aceMode);
   document.getElementById("seed-display").textContent = `Seed: ${data.seed}`;
   const hintMsg = document.getElementById("hint-message");
   hintMsg.textContent = "";

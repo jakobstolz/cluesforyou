@@ -23,6 +23,7 @@ class PuzzleRecord:
     starter_cell: Cell
     cell_clue: dict[Cell, Clue]  # cells with a real attached clue; all other cells -> fun fact
     difficulty: DifficultyParams
+    ace: bool = False  # which roster/funfacts pool this puzzle was generated from (ACE MODE or default)
     known_correct: KnownState = field(default_factory=dict)
     used_funfact_keys: set[str] = field(default_factory=set)
 
@@ -39,6 +40,7 @@ def create_puzzle_record(
     starter_cell: Cell,
     cell_clue: dict[Cell, Clue],
     difficulty: DifficultyParams,
+    ace: bool = False,
 ) -> tuple[str, PuzzleRecord]:
     puzzle_id = uuid.uuid4().hex
     record = PuzzleRecord(
@@ -47,6 +49,7 @@ def create_puzzle_record(
         starter_cell=starter_cell,
         cell_clue=cell_clue,
         difficulty=difficulty,
+        ace=ace,
     )
     PUZZLES[puzzle_id] = record
     return puzzle_id, record

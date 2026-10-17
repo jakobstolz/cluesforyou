@@ -61,24 +61,24 @@ def health() -> dict:
 
 
 @router.get("/roster", response_model=RosterListResponse)
-def list_roster() -> RosterListResponse:
-    entries = roster_store.load_roster()
+def list_roster(ace: bool = False) -> RosterListResponse:
+    entries = roster_store.load_roster("ace" if ace else "default")
     return RosterListResponse(people=[RosterEntryOut(id=e.id, name=e.name, profession=e.profession) for e in entries])
 
 
 @router.post("/roster", response_model=RosterEntryOut, status_code=201)
-def create_roster_entry(req: UpsertRosterEntryRequest) -> RosterEntryOut:
+def create_roster_entry(req: UpsertRosterEntryRequest, ace: bool = False) -> RosterEntryOut:
     try:
-        entry = roster_store.add_entry(req.name, req.profession)
+        entry = roster_store.add_entry(req.name, req.profession, "ace" if ace else "default")
     except roster_store.DuplicatePairError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return RosterEntryOut(id=entry.id, name=entry.name, profession=entry.profession)
 
 
 @router.put("/roster/{entry_id}", response_model=RosterEntryOut)
-def update_roster_entry(entry_id: str, req: UpsertRosterEntryRequest) -> RosterEntryOut:
+def update_roster_entry(entry_id: str, req: UpsertRosterEntryRequest, ace: bool = False) -> RosterEntryOut:
     try:
-        entry = roster_store.update_entry(entry_id, req.name, req.profession)
+        entry = roster_store.update_entry(entry_id, req.name, req.profession, "ace" if ace else "default")
     except roster_store.DuplicatePairError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KeyError as exc:
@@ -87,9 +87,9 @@ def update_roster_entry(entry_id: str, req: UpsertRosterEntryRequest) -> RosterE
 
 
 @router.delete("/roster/{entry_id}", status_code=204)
-def delete_roster_entry(entry_id: str) -> None:
+def delete_roster_entry(entry_id: str, ace: bool = False) -> None:
     try:
-        roster_store.delete_entry(entry_id)
+        roster_store.delete_entry(entry_id, "ace" if ace else "default")
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Unknown roster entry") from exc
 
@@ -99,7 +99,7 @@ def delete_roster_entry(entry_id: str) -> None:
 
 @router.post("/puzzle", response_model=PuzzleResponse)
 def create_puzzle(req: GeneratePuzzleRequest) -> PuzzleResponse:
-    roster = roster_store.load_roster()
+    roster = roster_store.load_roster("ace" if req.ace_mode else "default")
     # A puzzle grid never repeats a name (see core/grid.py), so what matters
     # is distinct *names* in the roster, not raw entry count - two entries
     # sharing a name only count once toward the minimum.
@@ -136,18 +136,18 @@ def create_puzzle(req: GeneratePuzzleRequest) -> PuzzleResponse:
     except GenerationTimeoutError as exc:
         print(
             f"[puzzle-gen] TIMEOUT difficulty={req.difficulty} seed={effective_seed!r} "
-            f"elapsed={time.monotonic() - t0:.1f}s",
+            f"ace={req.ace_mode} elapsed={time.monotonic() - t0:.1f}s",
             flush=True,
         )
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     print(
         f"[puzzle-gen] OK difficulty={req.difficulty} seed={effective_seed!r} "
-        f"elapsed={time.monotonic() - t0:.1f}s clues={len(data.cell_clue)}",
+        f"ace={req.ace_mode} elapsed={time.monotonic() - t0:.1f}s clues={len(data.cell_clue)}",
         flush=True,
     )
 
     puzzle_id, _record = create_puzzle_record(
-        data.layout, data.solution, data.starter_cell, data.cell_clue, data.difficulty
+        data.layout, data.solution, data.starter_cell, data.cell_clue, data.difficulty, ace=req.ace_mode
     )
 
     grid_out = [
@@ -195,7 +195,7 @@ def submit_guess(req: GuessRequest) -> GuessResponse:
     if len(record.known_correct) == NUM_CELLS:
         return GuessResponse(correct=True, solved=True)
 
-    reveal = reveal_for_cell(cell, guess_bool, record.layout, record.cell_clue, record.used_funfact_keys)
+    reveal = reveal_for_cell(cell, guess_bool, record.layout, record.cell_clue, record.used_funfact_keys, ace=record.ace)
     return GuessResponse(correct=True, reveal=_reveal_out(reveal), solved=False)
 
 
@@ -224,7 +224,9 @@ def get_hint(req: HintRequest) -> HintResponse:
 
     reveal = None
     if len(record.known_correct) < NUM_CELLS:
-        reveal = _reveal_out(reveal_for_cell(cell, value, record.layout, record.cell_clue, record.used_funfact_keys))
+        reveal = _reveal_out(
+            reveal_for_cell(cell, value, record.layout, record.cell_clue, record.used_funfact_keys, ace=record.ace)
+        )
 
     return HintResponse(
         available=True,
